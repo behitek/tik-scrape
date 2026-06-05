@@ -1,0 +1,146 @@
+import webbrowser
+from html import escape
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QFrame, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit,
+    QScrollArea, QWidget, QSizePolicy,
+)
+
+from ui.image_thumb import ImageThumb
+from ui.theme import PALETTE
+
+
+class UrlRowWidget(QFrame):
+    def __init__(self, url: str, index: int, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.thumbs: list[ImageThumb] = []
+
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {PALETTE['bg_card']};
+                border: 1px solid {PALETTE['border']};
+                border-radius: 6px;
+                margin: 2px 4px;
+            }}
+            QFrame:hover {{
+                border-color: {PALETTE['border_lt']};
+            }}
+        """)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(4)
+
+        outer.addLayout(self._build_top_bar(index))
+        outer.addWidget(self._build_thumb_strip())
+
+    def _build_top_bar(self, index: int) -> QHBoxLayout:
+        top = QHBoxLayout()
+        top.setSpacing(8)
+
+        idx_label = QLabel(f"{index}.")
+        idx_label.setFixedWidth(28)
+        idx_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        idx_label.setStyleSheet(f"color: {PALETTE['text_faint']}; font-size: 11px;")
+        top.addWidget(idx_label)
+
+        # Clickable URL label
+        display = escape(self.url[:65] + ("…" if len(self.url) > 65 else ""))
+        url_label = QLabel(
+            f'<a href="{escape(self.url)}" '
+            f'style="color:{PALETTE["text_dim"]}; text-decoration:none;">'
+            f'{display}</a>'
+        )
+        url_label.setOpenExternalLinks(True)
+        url_label.setToolTip(self.url)
+        url_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        url_label.setStyleSheet(
+            f"QLabel {{ font-size: 11px; }} "
+            f"QLabel:hover {{ color: {PALETTE['teal']}; }}"
+        )
+        url_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        top.addWidget(url_label)
+
+        prefix_lbl = QLabel("Prefix:")
+        prefix_lbl.setStyleSheet(f"color: {PALETTE['text_dim']}; font-size: 11px;")
+        top.addWidget(prefix_lbl)
+
+        self.prefix_edit = QLineEdit()
+        self.prefix_edit.setPlaceholderText("image_prefix")
+        self.prefix_edit.setFixedWidth(150)
+        top.addWidget(self.prefix_edit)
+
+        self.status_label = QLabel("Waiting…")
+        self.status_label.setFixedWidth(200)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.status_label.setStyleSheet(f"color: {PALETTE['text_faint']}; font-size: 11px;")
+        top.addWidget(self.status_label)
+
+        return top
+
+    def _build_thumb_strip(self) -> QScrollArea:
+        self._thumb_container = QWidget()
+        self._thumb_layout = QHBoxLayout(self._thumb_container)
+        self._thumb_layout.setContentsMargins(0, 0, 0, 0)
+        self._thumb_layout.setSpacing(4)
+        self._thumb_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self._placeholder = QLabel("No images yet")
+        self._placeholder.setStyleSheet(f"color: {PALETTE['text_faint']}; font-size: 11px;")
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._thumb_layout.addWidget(self._placeholder)
+
+        scroll = QScrollArea()
+        scroll.setWidget(self._thumb_container)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFixedHeight(140)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        return scroll
+
+    # ── Public API ──────────────────────────────────────────────────────────
+
+    def set_status(self, text: str):
+        self.status_label.setText(text)
+        if text.startswith("✓"):
+            color = PALETTE["success"]
+        elif text.startswith("⚠"):
+            color = PALETTE["warning"]
+        elif "CAPTCHA" in text:
+            color = PALETTE["red"]
+        else:
+            color = PALETTE["text_dim"]
+        self.status_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+    def add_images(self, pairs: list[tuple]):
+        if self._placeholder:
+            self._placeholder.setParent(None)
+            self._placeholder = None
+
+        for thumb_px, full_px in pairs:
+            thumb = ImageThumb(thumb_px, full_px, self._thumb_container)
+            self._thumb_layout.addWidget(thumb)
+            self.thumbs.append(thumb)
+
+        self._thumb_container.adjustSize()
+
+    def select_all(self, state: bool):
+        for t in self.thumbs:
+            t.selected = state
+            t.update()
+        self.on_selection_changed()
+
+    def on_selection_changed(self):
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, "update_save_button"):
+                parent.update_save_button()
+                break
+            parent = parent.parent()
+
+    def selected_count(self) -> int:
+        return sum(1 for t in self.thumbs if t.selected)
