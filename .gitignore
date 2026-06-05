@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# PyInstaller output
+*.exe
+*.spec.bak
+
+# Playwright browser binaries
+playwright/
+ms-playwright/
+
+# Browser profile (contains cookies/sessions)
+~/.tik-scrape-profile/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
