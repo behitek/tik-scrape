@@ -52,14 +52,6 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self):
         menu_bar = self.menuBar()
-        menu_bar.setStyleSheet(f"""
-            QMenuBar {{ background: {PALETTE['bg_surface']}; color: {PALETTE['text']};
-                        border-bottom: 1px solid {PALETTE['border']}; }}
-            QMenuBar::item:selected {{ background: {PALETTE['bg_card']}; }}
-            QMenu {{ background: {PALETTE['bg_surface']}; color: {PALETTE['text']};
-                     border: 1px solid {PALETTE['border']}; }}
-            QMenu::item:selected {{ background: {PALETTE['bg_card']}; }}
-        """)
         help_menu = menu_bar.addMenu("Trợ giúp")
         about_action = QAction("Giới thiệu", self)
         about_action.triggered.connect(self._on_about)
@@ -144,10 +136,10 @@ class MainWindow(QMainWindow):
         clear_btn.clicked.connect(self._on_clear)
         btn_row.addWidget(clear_btn)
 
-        self._parse_btn = QPushButton("Tải URL  ▶")
-        self._parse_btn.setObjectName("primary")
-        self._parse_btn.clicked.connect(self._on_parse_urls)
-        btn_row.addWidget(self._parse_btn)
+        self._start_btn = QPushButton("Bắt đầu  ▶")
+        self._start_btn.setObjectName("primary")
+        self._start_btn.clicked.connect(self._on_start)
+        btn_row.addWidget(self._start_btn)
 
         box.addLayout(btn_row)
         return box
@@ -155,12 +147,6 @@ class MainWindow(QMainWindow):
     def _build_action_bar(self) -> QHBoxLayout:
         bar = QHBoxLayout()
         bar.setSpacing(8)
-
-        self._crawl_btn = QPushButton("Thu thập tất cả")
-        self._crawl_btn.setObjectName("primary")
-        self._crawl_btn.setEnabled(False)
-        self._crawl_btn.clicked.connect(self._on_crawl)
-        bar.addWidget(self._crawl_btn)
 
         self._stop_btn = QPushButton("Dừng")
         self._stop_btn.setObjectName("danger")
@@ -249,11 +235,10 @@ class MainWindow(QMainWindow):
     def _on_clear(self):
         self._url_input.clear()
         self._clear_rows()
-        self._crawl_btn.setEnabled(False)
         self._progress.setValue(0)
         self._progress_label.setText("0 / 0")
 
-    def _on_parse_urls(self):
+    def _on_start(self):
         text = self._url_input.toPlainText()
         urls = [l.strip() for l in text.splitlines() if l.strip().startswith("http")]
         if not urls:
@@ -263,16 +248,16 @@ class MainWindow(QMainWindow):
         for i, url in enumerate(urls, 1):
             prefix = prefixes[(i - 1) % len(prefixes)] if prefixes else ""
             self._add_row(url, i, prefix)
-        self._crawl_btn.setEnabled(True)
         self._progress.setMaximum(len(urls))
         self._progress.setValue(0)
         self._progress_label.setText(f"0 / {len(urls)}")
         logger.info("Đã tải %d URL", len(urls))
+        self._on_crawl()
 
     def _on_crawl(self):
         if not self._rows:
             return
-        self._crawl_btn.setEnabled(False)
+        self._start_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
         self._progress.setValue(0)
         self._progress.setMaximum(len(self._rows))
@@ -339,9 +324,27 @@ class MainWindow(QMainWindow):
         logger.warning("Phát hiện CAPTCHA — chờ người dùng giải: %s", url)
 
     def _on_crawl_finished(self):
-        self._crawl_btn.setEnabled(True)
+        self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
-        logger.info("Đã xử lý tất cả URL")
+        total_images = sum(len(row.thumbs) for row in self._rows)
+        logger.info("Đã xử lý tất cả URL — tổng %d ảnh", total_images)
+
+        config = self._config_panel.get_config()
+
+        if config.get("sound_notify"):
+            try:
+                import winsound
+                winsound.MessageBeep(winsound.MB_OK)
+            except Exception:
+                pass
+
+        if config.get("tray_notify") and QSystemTrayIcon.isSystemTrayAvailable():
+            self._tray.showMessage(
+                "Thu thập xong!",
+                f"Đã xử lý {len(self._rows)} URL, tìm được {total_images} ảnh.",
+                QSystemTrayIcon.MessageIcon.Information,
+                8_000,
+            )
 
     def _on_browse_dest(self):
         folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu", self._dest_folder)
