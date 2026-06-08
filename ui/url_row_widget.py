@@ -64,16 +64,16 @@ class UrlRowWidget(QFrame):
         url_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         top.addWidget(url_label)
 
-        prefix_lbl = QLabel("Prefix:")
+        prefix_lbl = QLabel("Tiền tố:")
         prefix_lbl.setStyleSheet(f"color: {PALETTE['text_dim']}; font-size: 11px;")
         top.addWidget(prefix_lbl)
 
         self.prefix_edit = QLineEdit()
-        self.prefix_edit.setPlaceholderText("image_prefix")
+        self.prefix_edit.setPlaceholderText("ten_san_pham")
         self.prefix_edit.setFixedWidth(150)
         top.addWidget(self.prefix_edit)
 
-        self.status_label = QLabel("Waiting…")
+        self.status_label = QLabel("Đang chờ…")
         self.status_label.setFixedWidth(200)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.status_label.setStyleSheet(f"color: {PALETTE['text_faint']}; font-size: 11px;")
@@ -88,7 +88,7 @@ class UrlRowWidget(QFrame):
         self._thumb_layout.setSpacing(4)
         self._thumb_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        self._placeholder = QLabel("No images yet")
+        self._placeholder = QLabel("Chưa có ảnh")
         self._placeholder.setStyleSheet(f"color: {PALETTE['text_faint']}; font-size: 11px;")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._thumb_layout.addWidget(self._placeholder)

@@ -2,14 +2,13 @@ import logging
 import os
 import sys
 
-import openpyxl
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtGui import QIcon, QAction, QFont
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QProgressBar, QFileDialog,
     QScrollArea, QLineEdit, QMessageBox, QTabWidget,
-    QSystemTrayIcon, QStyle, QMenuBar,
+    QSystemTrayIcon, QStyle, QPlainTextEdit,
 )
 
 from ui.url_row_widget import UrlRowWidget
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("TikTok Image Scraper")
+        self.setWindowTitle("Công cụ tải ảnh TikTok")
         self.setMinimumSize(1000, 700)
         self.resize(1280, 860)
         self._rows: list[UrlRowWidget] = []
@@ -61,8 +60,8 @@ class MainWindow(QMainWindow):
                      border: 1px solid {PALETTE['border']}; }}
             QMenu::item:selected {{ background: {PALETTE['bg_card']}; }}
         """)
-        help_menu = menu_bar.addMenu("Help")
-        about_action = QAction("About", self)
+        help_menu = menu_bar.addMenu("Trợ giúp")
+        about_action = QAction("Giới thiệu", self)
         about_action.triggered.connect(self._on_about)
         help_menu.addAction(about_action)
 
@@ -82,7 +81,7 @@ class MainWindow(QMainWindow):
     def _setup_tray(self):
         icon = self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning)
         self._tray = QSystemTrayIcon(icon, self)
-        self._tray.setToolTip("TikTok Image Scraper")
+        self._tray.setToolTip("Công cụ tải ảnh TikTok")
         if QSystemTrayIcon.isSystemTrayAvailable():
             self._tray.show()
 
@@ -96,11 +95,10 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_scraper_tab(), "  Scraper  ")
-        tabs.addTab(self._build_settings_tab(), "  Settings  ")
+        tabs.addTab(self._build_scraper_tab(), "  Thu thập  ")
+        tabs.addTab(self._build_settings_tab(), "  Cài đặt  ")
         root.addWidget(tabs)
 
-        # Connect log handler to log panel
         self._log_handler.log_emitted.connect(self._log_panel.append_log)
 
     def _build_scraper_tab(self) -> QWidget:
@@ -109,7 +107,8 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(12, 10, 12, 8)
         layout.setSpacing(8)
 
-        layout.addLayout(self._build_toolbar())
+        layout.addLayout(self._build_url_input())
+        layout.addLayout(self._build_action_bar())
         layout.addWidget(self._build_rows_area(), stretch=1)
         layout.addLayout(self._build_save_bar())
 
@@ -122,30 +121,48 @@ class MainWindow(QMainWindow):
         self._config_panel = ConfigPanel()
         return self._config_panel
 
-    def _build_toolbar(self) -> QHBoxLayout:
+    def _build_url_input(self) -> QVBoxLayout:
+        box = QVBoxLayout()
+        box.setSpacing(4)
+
+        lbl = QLabel("Dán danh sách URL (mỗi URL một dòng):")
+        lbl.setStyleSheet(f"color: {PALETTE['text_dim']}; font-size: 11px;")
+        box.addWidget(lbl)
+
+        self._url_input = QPlainTextEdit()
+        self._url_input.setPlaceholderText(
+            "https://vt.tiktok.com/...\nhttps://vt.tiktok.com/...\n..."
+        )
+        self._url_input.setFixedHeight(110)
+        self._url_input.setFont(QFont("Consolas", 10))
+        box.addWidget(self._url_input)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        clear_btn = QPushButton("Xóa danh sách")
+        clear_btn.clicked.connect(self._on_clear)
+        btn_row.addWidget(clear_btn)
+
+        self._parse_btn = QPushButton("Tải URL  ▶")
+        self._parse_btn.setObjectName("primary")
+        self._parse_btn.clicked.connect(self._on_parse_urls)
+        btn_row.addWidget(self._parse_btn)
+
+        box.addLayout(btn_row)
+        return box
+
+    def _build_action_bar(self) -> QHBoxLayout:
         bar = QHBoxLayout()
         bar.setSpacing(8)
 
-        self._load_btn = QPushButton("Load URLs from file")
-        self._load_btn.clicked.connect(self._on_load_file)
-        bar.addWidget(self._load_btn)
-
-        self._tmpl_btn = QPushButton("Download Template")
-        self._tmpl_btn.clicked.connect(self._on_download_template)
-        bar.addWidget(self._tmpl_btn)
-
-        sep = QWidget()
-        sep.setFixedWidth(1)
-        sep.setStyleSheet(f"background: {PALETTE['border']};")
-        bar.addWidget(sep)
-
-        self._crawl_btn = QPushButton("Crawl All")
+        self._crawl_btn = QPushButton("Thu thập tất cả")
         self._crawl_btn.setObjectName("primary")
         self._crawl_btn.setEnabled(False)
         self._crawl_btn.clicked.connect(self._on_crawl)
         bar.addWidget(self._crawl_btn)
 
-        self._stop_btn = QPushButton("Stop")
+        self._stop_btn = QPushButton("Dừng")
         self._stop_btn.setObjectName("danger")
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._on_stop)
@@ -182,17 +199,17 @@ class MainWindow(QMainWindow):
         bar = QHBoxLayout()
         bar.setSpacing(8)
 
-        sel_all = QPushButton("Select All")
+        sel_all = QPushButton("Chọn tất cả")
         sel_all.clicked.connect(lambda: self._select_all(True))
         bar.addWidget(sel_all)
 
-        desel_all = QPushButton("Deselect All")
+        desel_all = QPushButton("Bỏ chọn")
         desel_all.clicked.connect(lambda: self._select_all(False))
         bar.addWidget(desel_all)
 
         bar.addStretch()
 
-        dest_lbl = QLabel("Save to:")
+        dest_lbl = QLabel("Lưu vào:")
         dest_lbl.setObjectName("section")
         bar.addWidget(dest_lbl)
 
@@ -201,11 +218,11 @@ class MainWindow(QMainWindow):
         self._dest_edit.setMinimumWidth(280)
         bar.addWidget(self._dest_edit)
 
-        browse_btn = QPushButton("Browse…")
+        browse_btn = QPushButton("Chọn thư mục…")
         browse_btn.clicked.connect(self._on_browse_dest)
         bar.addWidget(browse_btn)
 
-        self._save_btn = QPushButton("Save Selected (0)")
+        self._save_btn = QPushButton("Lưu đã chọn (0)")
         self._save_btn.setObjectName("primary")
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._on_save)
@@ -229,75 +246,28 @@ class MainWindow(QMainWindow):
 
     # ── Slots ────────────────────────────────────────────────────────────────
 
-    def _on_load_file(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open URL list", "",
-            "Excel files (*.xlsx);;Text files (*.txt);;All files (*)"
-        )
-        if not path:
-            return
-
+    def _on_clear(self):
+        self._url_input.clear()
         self._clear_rows()
-        if path.lower().endswith(".xlsx"):
-            entries = self._parse_xlsx(path)
-        else:
-            entries = self._parse_txt(path)
-
-        for i, (url, prefix) in enumerate(entries, 1):
-            self._add_row(url, i, prefix)
-
-        self._crawl_btn.setEnabled(bool(entries))
-        self._progress.setMaximum(max(len(entries), 1))
+        self._crawl_btn.setEnabled(False)
         self._progress.setValue(0)
-        self._progress_label.setText(f"0 / {len(entries)}")
-        logger.info("Loaded %d URL(s) from %s", len(entries), os.path.basename(path))
+        self._progress_label.setText("0 / 0")
 
-    def _parse_xlsx(self, path: str) -> list[tuple[str, str]]:
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        if not rows:
-            return []
-
-        url_col, prefix_col = 0, 1
-        header = [str(c).lower().strip() if c is not None else "" for c in rows[0]]
-        if "url" in header:
-            url_col = header.index("url")
-        if "prefix" in header:
-            prefix_col = header.index("prefix")
-        data_rows = rows[1:] if "url" in header else rows
-
-        entries = []
-        for row in data_rows:
-            url = str(row[url_col]).strip() if url_col < len(row) and row[url_col] else ""
-            prefix = str(row[prefix_col]).strip() if prefix_col < len(row) and row[prefix_col] else ""
-            if url.startswith("http"):
-                entries.append((url, prefix))
-        return entries
-
-    def _parse_txt(self, path: str) -> list[tuple[str, str]]:
-        with open(path, encoding="utf-8") as f:
-            lines = [l.strip() for l in f if l.strip()]
-        entries = []
-        for line in lines:
-            parts = line.split(None, 1)
-            url = parts[-1] if parts else ""
-            if url.startswith("http"):
-                entries.append((url, ""))
-        return entries
-
-    def _on_download_template(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Template", "tiktok_template.xlsx", "Excel files (*.xlsx)"
-        )
-        if not path:
+    def _on_parse_urls(self):
+        text = self._url_input.toPlainText()
+        urls = [l.strip() for l in text.splitlines() if l.strip().startswith("http")]
+        if not urls:
             return
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(["url", "prefix"])
-        ws.append(["https://vt.tiktok.com/EXAMPLE/", "product_name"])
-        wb.save(path)
-        QMessageBox.information(self, "Template Saved", f"Template saved to:\n{path}")
+        prefixes = self._config_panel.get_prefix_list()
+        self._clear_rows()
+        for i, url in enumerate(urls, 1):
+            prefix = prefixes[(i - 1) % len(prefixes)] if prefixes else ""
+            self._add_row(url, i, prefix)
+        self._crawl_btn.setEnabled(True)
+        self._progress.setMaximum(len(urls))
+        self._progress.setValue(0)
+        self._progress_label.setText(f"0 / {len(urls)}")
+        logger.info("Đã tải %d URL", len(urls))
 
     def _on_crawl(self):
         if not self._rows:
@@ -308,11 +278,11 @@ class MainWindow(QMainWindow):
         self._progress.setMaximum(len(self._rows))
 
         for row in self._rows:
-            row.set_status("Queued…")
+            row.set_status("Đang chờ…")
 
         config = self._config_panel.get_config()
         logger.info(
-            "Starting crawl: %d URL(s), human_sim=%s, delay=%.1f–%.1fs",
+            "Bắt đầu thu thập: %d URL, human_sim=%s, delay=%.1f–%.1fs",
             len(self._rows), config["human_sim"], config["min_delay"], config["max_delay"],
         )
 
@@ -360,21 +330,21 @@ class MainWindow(QMainWindow):
         if config.get("tray_notify") and QSystemTrayIcon.isSystemTrayAvailable():
             short_url = url[:70] + ("…" if len(url) > 70 else "")
             self._tray.showMessage(
-                "CAPTCHA Detected!",
-                f"Please solve the security check in the browser window.\n{short_url}",
+                "Phát hiện CAPTCHA!",
+                f"Vui lòng giải CAPTCHA trong cửa sổ trình duyệt.\n{short_url}",
                 QSystemTrayIcon.MessageIcon.Warning,
                 10_000,
             )
 
-        logger.warning("CAPTCHA detected — waiting for user to solve: %s", url)
+        logger.warning("Phát hiện CAPTCHA — chờ người dùng giải: %s", url)
 
     def _on_crawl_finished(self):
         self._crawl_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
-        logger.info("All URLs processed")
+        logger.info("Đã xử lý tất cả URL")
 
     def _on_browse_dest(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select destination folder", self._dest_folder)
+        folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu", self._dest_folder)
         if folder:
             self._dest_folder = folder
             self._dest_edit.setText(folder)
@@ -386,7 +356,7 @@ class MainWindow(QMainWindow):
 
     def update_save_button(self):
         total = sum(row.selected_count() for row in self._rows)
-        self._save_btn.setText(f"Save Selected ({total})")
+        self._save_btn.setText(f"Lưu đã chọn ({total})")
         self._save_btn.setEnabled(total > 0)
 
     def _on_save(self):
@@ -414,8 +384,8 @@ class MainWindow(QMainWindow):
                 else:
                     errors += 1
 
-        logger.info("Saved %d image(s) to %s (%d error(s))", saved, dest, errors)
-        msg = f"Saved {saved} image(s) to:\n{dest}"
+        logger.info("Đã lưu %d ảnh vào %s (%d lỗi)", saved, dest, errors)
+        msg = f"Đã lưu {saved} ảnh vào:\n{dest}"
         if errors:
-            msg += f"\n\n⚠ {errors} image(s) could not be saved."
-        QMessageBox.information(self, "Save Complete", msg)
+            msg += f"\n\n⚠ {errors} ảnh không thể lưu."
+        QMessageBox.information(self, "Lưu xong", msg)

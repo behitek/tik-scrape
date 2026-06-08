@@ -131,15 +131,15 @@ class CrawlWorker(QThread):
                     logger.info("Crawl stopped at URL %d/%d", i, total)
                     break
 
-                self.status_update.emit(url, "Fetching…")
+                self.status_update.emit(url, "Đang tải…")
                 logger.info("[%d/%d] Processing: %s", i, total, url)
 
                 def _on_captcha():
-                    self.status_update.emit(url, "⚠ CAPTCHA — solve in browser window to continue")
+                    self.status_update.emit(url, "⚠ CAPTCHA — vui lòng giải trong cửa sổ trình duyệt")
                     self.captcha_detected.emit(url)
 
                 def _on_captcha_solved():
-                    self.status_update.emit(url, "CAPTCHA solved, extracting…")
+                    self.status_update.emit(url, "Đã giải CAPTCHA, đang trích xuất…")
 
                 try:
                     image_urls, error = scrape_images(
@@ -155,7 +155,7 @@ class CrawlWorker(QThread):
                     image_urls = []
 
                 if error or not image_urls:
-                    self.status_update.emit(url, f"⚠ {error or 'No images found'}")
+                    self.status_update.emit(url, f"⚠ {error or 'Không tìm thấy ảnh'}")
                     self.progress.emit(i, total)
                     _human_simulate(page, cfg)
                     delay = random.uniform(cfg["min_delay"], cfg["max_delay"])
@@ -163,7 +163,7 @@ class CrawlWorker(QThread):
                     time.sleep(max(delay, 0.3))
                     continue
 
-                self.status_update.emit(url, f"Downloading {len(image_urls)} image(s)…")
+                self.status_update.emit(url, f"Đang tải {len(image_urls)} ảnh…")
                 logger.debug("Downloading %d images", len(image_urls))
 
                 pairs = []
@@ -174,10 +174,10 @@ class CrawlWorker(QThread):
 
                 if pairs:
                     self.images_ready.emit(url, pairs)
-                    self.status_update.emit(url, f"✓ {len(pairs)} image(s)")
+                    self.status_update.emit(url, f"✓ {len(pairs)} ảnh")
                     logger.info("Done: %d images downloaded for %s", len(pairs), url)
                 else:
-                    self.status_update.emit(url, "⚠ Images could not be downloaded")
+                    self.status_update.emit(url, "⚠ Không thể tải ảnh")
                     logger.warning("All image downloads failed for: %s", url)
 
                 self.progress.emit(i, total)

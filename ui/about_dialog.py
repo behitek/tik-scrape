@@ -84,16 +84,16 @@ class AboutDialog(QDialog):
             row.addStretch()
             layout.addLayout(row)
 
-        info_row("Developer:", DEV_NAME)
-        info_row("Email:",    DEV_EMAIL,   f"mailto:{DEV_EMAIL}")
-        info_row("Website:",  "behitek.com", DEV_WEBSITE)
+        info_row("Nhà phát triển:", DEV_NAME)
+        info_row("Email:",         DEV_EMAIL,   f"mailto:{DEV_EMAIL}")
+        info_row("Website:",       "behitek.com", DEV_WEBSITE)
 
         layout.addStretch()
 
         # Close button
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        close_btn = QPushButton("Close")
+        close_btn = QPushButton("Đóng")
         close_btn.setFixedWidth(90)
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
