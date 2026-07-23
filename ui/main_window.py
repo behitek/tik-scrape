@@ -402,7 +402,7 @@ class MainWindow(QMainWindow):
         csv_error = ""
         try:
             write_products_csv(dest, csv_entries)
-        except OSError as e:
+        except Exception as e:
             csv_error = str(e)
             logger.error("Không thể ghi products.csv: %s", e)
 
