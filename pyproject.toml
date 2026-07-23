@@ -8,7 +8,6 @@ authors = [
 maintainers = [
     {name = "Hieu Nguyen", email = "hieunv.dev@gmail.com"}
 ]
-readme = "README.md"
 license = {text = "Proprietary"}
 keywords = ["tiktok", "scraper", "image", "downloader"]
 requires-python = ">=3.10,<3.15"
@@ -23,6 +22,9 @@ dependencies = [
 
 [project.scripts]
 start = "main:main"
+
+[tool.poetry]
+package-mode = false
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

@@ -20,66 +20,77 @@ poetry run playwright install chromium
 
 # 4. Install PyInstaller
 poetry run pip install pyinstaller
+
+# 5. Install NSIS (for the installer — one-time, system-wide)
+#    Download from https://nsis.sourceforge.io/ and install to the default location:
+#    C:\Program Files (x86)\NSIS\
 ```
 
 ---
 
 ## Build the executable
 
-```bat
-build.bat
+Run each step from a PowerShell terminal in the project root:
+
+```powershell
+# Step 1 — install/update PyInstaller
+poetry run pip install pyinstaller --quiet
+
+# Step 2 — regenerate icons
+poetry run python assets/create_icon.py
+
+# Step 3 — build the app
+poetry run pyinstaller build.spec --clean --noconfirm
+
+# Step 4 — package portable zip
+Compress-Archive -Path dist\TikTokImageScraper\* `
+                 -DestinationPath dist\TikTokImageScraper-v1.0.0-win64.zip `
+                 -Force
+
+# Step 5 — build installer (requires NSIS installed)
+& "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
 ```
 
-This runs four steps automatically:
-
-1. Regenerates `assets/icon.ico`
-2. Runs `pyinstaller build.spec --clean`
-3. Zips the output folder
+> **Note:** `build.bat` exists but must be run from a plain `cmd.exe` terminal
+> (not PowerShell) due to Unicode characters in the script.
 
 **Output files:**
 
 ```
 dist\
-  TikTokImageScraper\          ← runnable folder (all files needed)
-    TikTokImageScraper.exe     ← main executable
+  TikTokImageScraper\                          <- runnable folder (all files needed)
+    TikTokImageScraper.exe                     <- main executable
     ...
-  TikTokImageScraper-v1.0.0-win64.zip   ← share this to the client
+  TikTokImageScraper-v1.0.0-win64.zip         <- portable distribution
+  TikTokImageScraper-v1.0.0-Setup-win64.exe   <- Windows installer
 ```
 
 ---
 
 ## What to send the client
 
-Send the file:
+Preferred (installer):
+```
+dist\TikTokImageScraper-v1.0.0-Setup-win64.exe
+```
+
+Alternative (portable):
 ```
 dist\TikTokImageScraper-v1.0.0-win64.zip
 ```
 
-**Client install steps (no Python needed):**
+**Installer — client steps (no Python needed):**
+
+1. Run `TikTokImageScraper-v1.0.0-Setup-win64.exe`
+2. Follow the wizard — installs to `Program Files`, creates Start Menu shortcut
+3. On first launch, the app will offer to install Chromium automatically (~150 MB, one-time)
+4. Done — app appears in Start Menu and Add/Remove Programs
+
+**Portable ZIP — client steps:**
 
 1. Extract the ZIP to any folder (e.g. `C:\Tools\TikTokImageScraper\`)
 2. Double-click `TikTokImageScraper.exe`
 3. On first launch, the app will offer to install Chromium automatically (~150 MB, one-time)
-4. Done — ready to use
-
----
-
-## Manual build (step-by-step)
-
-If `build.bat` fails, run each step manually:
-
-```bat
-# Generate icon
-poetry run python assets/create_icon.py
-
-# Build
-poetry run pyinstaller build.spec --clean --noconfirm
-
-# Package (PowerShell)
-Compress-Archive -Path dist\TikTokImageScraper\* `
-                 -DestinationPath dist\TikTokImageScraper-v1.0.0-win64.zip `
-                 -Force
-```
 
 ---
 
@@ -92,6 +103,8 @@ Compress-Archive -Path dist\TikTokImageScraper\* `
 | Chromium fails to install on client | Client runs `"%LOCALAPPDATA%\Programs\Python\...\playwright" install chromium` or contacts developer |
 | App opens then immediately closes | Re-build without `console=False` in `build.spec` to see error output |
 | UPX not found (warning) | Ignorable warning — install [UPX](https://github.com/upx/upx/releases) and add to PATH to compress the exe |
+| NSIS `can't change compressor` error | `SetCompressor` must be the first line in `installer.nsi` (before any `!include`) |
+| `build.bat` fails in PowerShell | Run it from `cmd.exe` instead, or run each step directly in PowerShell |
 
 ---
 
