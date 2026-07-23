@@ -64,15 +64,16 @@ def scrape_images(
     on_captcha_solved=None,
     captcha_timeout_ms: int = 180_000,
     page_timeout_ms: int = 30_000,
-) -> tuple[list[str], str]:
+) -> ScrapeResult:
     """
-    Navigate to a TikTok slideshow URL and return (image_url_list, error_message).
-    error_message is empty string on success.
+    Navigate to a TikTok slideshow/product URL and return a ScrapeResult.
     """
     logger.info("Navigating to: %s", url)
+    product_id = ""
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=page_timeout_ms)
         logger.debug("Page loaded — title: %s", page.title())
+        product_id = _extract_product_id(page.url)
 
         def _is_captcha_page() -> bool:
             title = page.title().lower()
@@ -135,7 +136,7 @@ def scrape_images(
                         "CAPTCHA timed out after %d ms for: %s (diagnostic read failed: %s)",
                         captcha_timeout_ms, url, diag_err,
                     )
-                return [], "CAPTCHA not solved — timed out"
+                return ScrapeResult([], "CAPTCHA not solved — timed out", product_id, "")
             if on_captcha_solved:
                 on_captcha_solved()
 
@@ -148,9 +149,10 @@ def scrape_images(
         content = page.content()
     except Exception as e:
         logger.error("Browser navigation error for %s: %s", url, e, exc_info=True)
-        return [], f"Browser error: {e}"
+        return ScrapeResult([], f"Browser error: {e}", product_id, "")
 
     soup = BeautifulSoup(content, "html.parser")
+    product_title = _extract_product_title(soup)
 
     # 1. __NEXT_DATA__ script tag
     next_data_tag = soup.find("script", id="__NEXT_DATA__")
@@ -160,7 +162,7 @@ def scrape_images(
             urls = _extract_image_urls_from_json(data)
             if urls:
                 logger.info("Found %d images via __NEXT_DATA__ tag", len(urls))
-                return urls, ""
+                return ScrapeResult(urls, "", product_id, product_title)
         except json.JSONDecodeError:
             logger.debug("Failed to parse __NEXT_DATA__ tag JSON")
 
@@ -173,7 +175,7 @@ def scrape_images(
                 urls = _extract_image_urls_from_json(data)
                 if urls:
                     logger.info("Found %d images via JS eval (%s)", len(urls), var)
-                    return urls, ""
+                    return ScrapeResult(urls, "", product_id, product_title)
         except Exception as e:
             logger.debug("JS eval failed for %s: %s", var, e)
 
@@ -191,7 +193,7 @@ def scrape_images(
                     urls = _extract_image_urls_from_json(data)
                     if urls:
                         logger.info("Found %d images via script regex fallback", len(urls))
-                        return urls, ""
+                        return ScrapeResult(urls, "", product_id, product_title)
                 except json.JSONDecodeError:
                     pass
 
@@ -207,7 +209,7 @@ def scrape_images(
                 urls.append(img["src"])
         if urls:
             logger.info("Found %d images via DOM slick-slide fallback", len(urls))
-            return urls, ""
+            return ScrapeResult(urls, "", product_id, product_title)
 
     logger.warning("No images found for: %s", url)
-    return [], "Not a slideshow or content unavailable"
+    return ScrapeResult([], "Not a slideshow or content unavailable", product_id, product_title)
