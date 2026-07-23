@@ -1,23 +1,22 @@
-# TikTok-inspired dark color palette
 PALETTE = {
-    "bg_deep":    "#0a0a0f",
-    "bg_main":    "#111318",
-    "bg_surface": "#181b24",
-    "bg_card":    "#1d2030",
-    "bg_input":   "#13161e",
-    "bg_raised":  "#22263a",
-    "border_dim": "#1c2038",
-    "border":     "#252b42",
-    "border_lt":  "#323858",
-    "teal":       "#25F4EE",
-    "red":        "#FE2C55",
-    "primary":    "#4d90f0",
-    "success":    "#22c55e",
-    "warning":    "#f59e0b",
-    "error":      "#ef4444",
-    "text":       "#dde1f0",
-    "text_dim":   "#6b7794",
-    "text_faint": "#2e3450",
+    "bg_deep":    "#f0f2f5",
+    "bg_main":    "#ffffff",
+    "bg_surface": "#f8f9fa",
+    "bg_card":    "#f0f2f5",
+    "bg_input":   "#ffffff",
+    "bg_raised":  "#e8eaed",
+    "border_dim": "#e0e3e8",
+    "border":     "#d0d4dc",
+    "border_lt":  "#b8bdc8",
+    "teal":       "#0d9488",
+    "red":        "#dc2626",
+    "primary":    "#2563eb",
+    "success":    "#16a34a",
+    "warning":    "#d97706",
+    "error":      "#dc2626",
+    "text":       "#1a1d2e",
+    "text_dim":   "#64748b",
+    "text_faint": "#cbd5e1",
 }
 
 
@@ -49,21 +48,23 @@ def stylesheet() -> str:
             color: {c['text']}; font-size: 12px;
         }}
         QPushButton:hover {{ border-color: {c['teal']}; color: {c['teal']}; }}
-        QPushButton:pressed {{ background: {c['bg_surface']}; }}
+        QPushButton:pressed {{ background: {c['bg_card']}; }}
         QPushButton:disabled {{ color: {c['text_faint']}; border-color: {c['border_dim']};
                                 background: {c['bg_surface']}; }}
         QPushButton#primary {{
-            background: #1a3f8c; border-color: #2a5ab5; color: #b8d0ff;
+            background: {c['primary']}; border-color: #1d4ed8; color: #ffffff;
         }}
-        QPushButton#primary:hover {{ background: #1f4da8; border-color: {c['primary']}; color: #cce0ff; }}
+        QPushButton#primary:hover {{ background: #1d4ed8; border-color: #1e40af; color: #ffffff; }}
         QPushButton#primary:disabled {{ background: {c['bg_surface']}; border-color: {c['border']};
                                         color: {c['text_faint']}; }}
-        QPushButton#danger {{ background: #4a0e1a; border-color: #7a1828; color: #ffb3b3; }}
-        QPushButton#danger:hover {{ background: #5e1222; border-color: {c['error']}; }}
+        QPushButton#danger {{ background: #fee2e2; border-color: #fca5a5; color: #dc2626; }}
+        QPushButton#danger:hover {{ background: #fecaca; border-color: {c['error']}; }}
+        QPushButton#danger:disabled {{ background: {c['bg_surface']}; border-color: {c['border']};
+                                       color: {c['text_faint']}; }}
 
         /* ── Progress bar ── */
         QProgressBar {{
-            background: {c['bg_surface']}; border: 1px solid {c['border']};
+            background: {c['bg_card']}; border: 1px solid {c['border']};
             border-radius: 4px; text-align: center; color: transparent;
         }}
         QProgressBar::chunk {{
@@ -75,7 +76,7 @@ def stylesheet() -> str:
         /* ── Scrollbars ── */
         QScrollArea {{ border: none; background: transparent; }}
         QScrollBar:vertical {{
-            width: 8px; background: {c['bg_deep']}; margin: 0;
+            width: 8px; background: {c['bg_card']}; margin: 0;
         }}
         QScrollBar::handle:vertical {{
             background: {c['border_lt']}; border-radius: 4px; min-height: 20px;
@@ -83,7 +84,7 @@ def stylesheet() -> str:
         QScrollBar::handle:vertical:hover {{ background: {c['text_dim']}; }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         QScrollBar:horizontal {{
-            height: 6px; background: {c['bg_deep']}; margin: 0;
+            height: 6px; background: {c['bg_card']}; margin: 0;
         }}
         QScrollBar::handle:horizontal {{
             background: {c['border_lt']}; border-radius: 3px; min-width: 20px;
@@ -97,12 +98,19 @@ def stylesheet() -> str:
             border-radius: 4px; color: {c['text']}; padding: 3px 8px;
         }}
         QLineEdit:focus {{ border-color: {c['teal']}; }}
-        QLineEdit:read-only {{ color: {c['text_dim']}; }}
+        QLineEdit:read-only {{ color: {c['text_dim']}; background: {c['bg_surface']}; }}
+
+        QPlainTextEdit {{
+            background: {c['bg_input']}; border: 1px solid {c['border']};
+            border-radius: 4px; color: {c['text']}; padding: 4px 8px;
+        }}
+        QPlainTextEdit:focus {{ border-color: {c['teal']}; }}
 
         /* ── Form groups ── */
         QGroupBox {{
             border: 1px solid {c['border']}; border-radius: 6px;
             margin-top: 14px; padding-top: 10px;
+            background: {c['bg_surface']};
         }}
         QGroupBox::title {{
             subcontrol-origin: margin; left: 10px; padding: 0 4px;
@@ -129,8 +137,8 @@ def stylesheet() -> str:
 
         /* ── TextEdit (log panel) ── */
         QTextEdit {{
-            background: {c['bg_deep']}; border: none; color: {c['text']};
-            selection-background-color: #2a3060;
+            background: {c['bg_surface']}; border: 1px solid {c['border']}; color: {c['text']};
+            selection-background-color: #bfdbfe;
             font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
             font-size: 11px;
         }}
@@ -139,4 +147,10 @@ def stylesheet() -> str:
         QLabel#section {{ color: {c['text_dim']}; font-size: 11px; }}
         QFrame[frameShape="4"] {{ color: {c['border']}; }}
         QFrame[frameShape="5"] {{ color: {c['border']}; }}
+        QMenuBar {{ background: {c['bg_surface']}; color: {c['text']};
+                    border-bottom: 1px solid {c['border']}; }}
+        QMenuBar::item:selected {{ background: {c['bg_card']}; }}
+        QMenu {{ background: {c['bg_main']}; color: {c['text']};
+                 border: 1px solid {c['border']}; }}
+        QMenu::item:selected {{ background: {c['bg_card']}; }}
     """

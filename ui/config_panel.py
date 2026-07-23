@@ -162,6 +162,7 @@ class ConfigPanel(QWidget):
         layout.setSpacing(12)
 
         self.human_sim_check = QCheckBox("Bật mô phỏng người dùng thật")
+        self.human_sim_check.setChecked(True)
         self.human_sim_check.setToolTip(
             "Thêm chuyển động chuột và cuộn trang ngẫu nhiên giữa các yêu cầu\n"
             "để giảm nguy cơ bị phát hiện là bot."
