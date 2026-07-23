@@ -51,13 +51,35 @@ def scrape_images(
         page.goto(url, wait_until="domcontentloaded", timeout=page_timeout_ms)
         logger.debug("Page loaded — title: %s", page.title())
 
-        if "security check" in page.title().lower():
+        def _is_captcha_page() -> bool:
+            title = page.title().lower()
+            current_url = page.url.lower()
+            if any(x in title for x in ("security check", "captcha", "verify")):
+                return True
+            if "verify.tiktok.com" in current_url or "captcha" in current_url:
+                return True
+            try:
+                # TikTok slide-puzzle CAPTCHA renders inside a specific container
+                if page.locator("#captcha-verify-image, .captcha_verify_container, [id*='captcha']").count() > 0:
+                    return True
+            except Exception:
+                pass
+            return False
+
+        if _is_captcha_page():
             logger.warning("CAPTCHA detected on: %s", url)
             if on_captcha:
                 on_captcha()
             try:
                 page.wait_for_function(
-                    "() => !document.title.toLowerCase().includes('security check')",
+                    "() => {"
+                    "  const t = document.title.toLowerCase();"
+                    "  const u = location.href.toLowerCase();"
+                    "  if (t.includes('security check') || t.includes('captcha') || t.includes('verify')) return false;"
+                    "  if (u.includes('verify.tiktok.com') || u.includes('captcha')) return false;"
+                    "  if (document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]')) return false;"
+                    "  return true;"
+                    "}",
                     timeout=captcha_timeout_ms,
                 )
                 logger.info("CAPTCHA resolved for: %s", url)
