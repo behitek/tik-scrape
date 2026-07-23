@@ -16,6 +16,8 @@ class UrlRowWidget(QFrame):
         super().__init__(parent)
         self.url = url
         self.thumbs: list[ImageThumb] = []
+        self.product_id = ""
+        self.product_title = ""
 
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet(f"""
@@ -47,22 +49,17 @@ class UrlRowWidget(QFrame):
         idx_label.setStyleSheet(f"color: {PALETTE['text_faint']}; font-size: 11px;")
         top.addWidget(idx_label)
 
-        # Clickable URL label
-        display = escape(self.url[:65] + ("…" if len(self.url) > 65 else ""))
-        url_label = QLabel(
-            f'<a href="{escape(self.url)}" '
-            f'style="color:{PALETTE["text_dim"]}; text-decoration:none;">'
-            f'{display}</a>'
-        )
-        url_label.setOpenExternalLinks(True)
-        url_label.setToolTip(self.url)
-        url_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        url_label.setStyleSheet(
+        # Clickable URL/title label — text refreshed by _refresh_url_label()
+        self._url_label = QLabel()
+        self._url_label.setOpenExternalLinks(True)
+        self._url_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._url_label.setStyleSheet(
             f"QLabel {{ font-size: 11px; }} "
             f"QLabel:hover {{ color: {PALETTE['teal']}; }}"
         )
-        url_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        top.addWidget(url_label)
+        self._url_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._refresh_url_label()
+        top.addWidget(self._url_label)
 
         prefix_lbl = QLabel("Tiền tố:")
         prefix_lbl.setStyleSheet(f"color: {PALETTE['text_dim']}; font-size: 11px;")
@@ -115,6 +112,27 @@ class UrlRowWidget(QFrame):
         else:
             color = PALETTE["text_dim"]
         self.status_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+    def set_product_info(self, product_id: str, title: str):
+        self.product_id = product_id
+        self.product_title = title
+        self._refresh_url_label()
+
+    def _refresh_url_label(self):
+        text_source = self.product_title or self.url
+        display = escape(text_source[:65] + ("…" if len(text_source) > 65 else ""))
+        self._url_label.setText(
+            f'<a href="{escape(self.url)}" '
+            f'style="color:{PALETTE["text_dim"]}; text-decoration:none;">'
+            f'{display}</a>'
+        )
+        tooltip_lines = []
+        if self.product_title:
+            tooltip_lines.append(self.product_title)
+        if self.product_id:
+            tooltip_lines.append(f"Product ID: {self.product_id}")
+        tooltip_lines.append(self.url)
+        self._url_label.setToolTip("\n".join(tooltip_lines))
 
     def add_images(self, pairs: list[tuple]):
         if self._placeholder:
