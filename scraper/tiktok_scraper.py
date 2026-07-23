@@ -1,10 +1,25 @@
 import json
 import logging
 import re
+from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ScrapeResult:
+    images: list[str]
+    error: str
+    product_id: str
+    product_title: str
+
+
+def _extract_product_id(url: str) -> str:
+    """Extract the numeric product ID from a resolved TikTok product URL."""
+    match = re.search(r"/view/product/(\d+)", url)
+    return match.group(1) if match else ""
 
 
 def _extract_image_urls_from_json(data: dict) -> list[str]:
