@@ -77,14 +77,41 @@ def scrape_images(
                     "  const u = location.href.toLowerCase();"
                     "  if (t.includes('security check') || t.includes('captcha') || t.includes('verify')) return false;"
                     "  if (u.includes('verify.tiktok.com') || u.includes('captcha')) return false;"
-                    "  if (document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]')) return false;"
+                    "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
+                    "  if (el) {"
+                    "    const s = window.getComputedStyle(el);"
+                    "    const visible = s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;"
+                    "    if (visible) return false;"
+                    "  }"
                     "  return true;"
                     "}",
                     timeout=captcha_timeout_ms,
                 )
                 logger.info("CAPTCHA resolved for: %s", url)
             except Exception:
-                logger.error("CAPTCHA timed out after %d ms for: %s", captcha_timeout_ms, url)
+                try:
+                    diag = page.evaluate(
+                        "() => {"
+                        "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
+                        "  return {"
+                        "    title: document.title,"
+                        "    url: location.href,"
+                        "    elFound: !!el,"
+                        "    elVisible: el ? (window.getComputedStyle(el).display !== 'none'"
+                        "      && window.getComputedStyle(el).visibility !== 'hidden'"
+                        "      && el.offsetParent !== null) : null,"
+                        "  };"
+                        "}"
+                    )
+                    logger.error(
+                        "CAPTCHA timed out after %d ms for: %s — page state at timeout: %s",
+                        captcha_timeout_ms, url, diag,
+                    )
+                except Exception as diag_err:
+                    logger.error(
+                        "CAPTCHA timed out after %d ms for: %s (diagnostic read failed: %s)",
+                        captcha_timeout_ms, url, diag_err,
+                    )
                 return [], "CAPTCHA not solved — timed out"
             if on_captcha_solved:
                 on_captcha_solved()
