@@ -40,11 +40,11 @@ class _BrowserInstaller(QThread):
             # Use playwright's own Node.js driver binary instead.
             if getattr(sys, "frozen", False):
                 from playwright._impl._driver import compute_driver_executable
-                driver, driver_env = compute_driver_executable()
+                node_exe, cli_js = compute_driver_executable()
                 result = subprocess.run(
-                    [str(driver), "install", "chromium"],
+                    [str(node_exe), str(cli_js), "install", "chromium"],
                     capture_output=True, text=True, timeout=600,
-                    env={**os.environ, **driver_env},
+                    env=os.environ.copy(),
                 )
             else:
                 result = subprocess.run(
