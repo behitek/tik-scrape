@@ -16,6 +16,7 @@ from ui.config_panel import ConfigPanel
 from ui.log_panel import LogPanel, QtLogHandler
 from ui.theme import PALETTE, stylesheet
 from scraper.worker import CrawlWorker
+from scraper.csv_export import write_products_csv
 
 
 def _resource(rel: str) -> str:
@@ -277,6 +278,7 @@ class MainWindow(QMainWindow):
         self._worker.status_update.connect(self._on_status_update)
         self._worker.progress.connect(self._on_progress)
         self._worker.captcha_detected.connect(self._on_captcha_detected)
+        self._worker.product_info.connect(self._on_product_info)
         self._worker.finished.connect(self._on_crawl_finished)
         self._worker.start()
 
@@ -296,6 +298,12 @@ class MainWindow(QMainWindow):
         for row in self._rows:
             if row.url == url:
                 row.set_status(text)
+                break
+
+    def _on_product_info(self, url: str, product_id: str, product_title: str):
+        for row in self._rows:
+            if row.url == url:
+                row.set_product_info(product_id, product_title)
                 break
 
     def _on_progress(self, done: int, total: int):
@@ -368,10 +376,10 @@ class MainWindow(QMainWindow):
 
         saved = 0
         errors = 0
+        csv_entries = []
         for row in self._rows:
             selected = [t for t in row.thumbs if t.selected]
-            if not selected:
-                continue
+            saved_filenames = []
             prefix = row.prefix_edit.text().strip() or "image"
             for i, thumb in enumerate(selected, 1):
                 filename = f"{prefix}_{i:03d}.jpg"
@@ -384,11 +392,32 @@ class MainWindow(QMainWindow):
                 ok = thumb.full_pixmap.save(filepath, "JPEG", 92)
                 if ok:
                     saved += 1
+                    saved_filenames.append(os.path.basename(filepath))
                 else:
                     errors += 1
+            csv_entries.append((row.product_id, row.product_title, saved_filenames))
 
         logger.info("Đã lưu %d ảnh vào %s (%d lỗi)", saved, dest, errors)
+
+        csv_error = ""
+        try:
+            write_products_csv(dest, csv_entries)
+        except OSError as e:
+            csv_error = str(e)
+            logger.error("Không thể ghi products.csv: %s", e)
+
         msg = f"Đã lưu {saved} ảnh vào:\n{dest}"
         if errors:
             msg += f"\n\n⚠ {errors} ảnh không thể lưu."
-        QMessageBox.information(self, "Lưu xong", msg)
+        if csv_error:
+            msg += f"\n\n⚠ Không thể ghi products.csv: {csv_error}"
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Lưu xong")
+        box.setText(msg)
+        box.setIcon(QMessageBox.Icon.Information)
+        open_btn = box.addButton("Mở thư mục", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Ok)
+        box.exec()
+        if box.clickedButton() == open_btn:
+            os.startfile(dest)
