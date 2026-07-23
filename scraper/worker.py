@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QPixmap, QImage
 
-from scraper.tiktok_scraper import scrape_images
+from scraper.tiktok_scraper import scrape_images, ScrapeResult
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,7 @@ class CrawlWorker(QThread):
     status_update    = Signal(str, str)
     progress         = Signal(int, int)
     captcha_detected = Signal(str)   # url — triggers sound/tray in main thread
+    product_info     = Signal(str, str, str)  # url, product_id, product_title
 
     def __init__(self, url_list: list[str], config: dict | None = None, parent=None):
         super().__init__(parent)
@@ -142,7 +143,7 @@ class CrawlWorker(QThread):
                     self.status_update.emit(url, "Đã giải CAPTCHA, đang trích xuất…")
 
                 try:
-                    image_urls, error = scrape_images(
+                    result = scrape_images(
                         url, page,
                         on_captcha=_on_captcha,
                         on_captcha_solved=_on_captcha_solved,
@@ -151,8 +152,10 @@ class CrawlWorker(QThread):
                     )
                 except Exception as e:
                     logger.error("Scrape error for %s: %s", url, e, exc_info=True)
-                    error = f"Unexpected error: {e}"
-                    image_urls = []
+                    result = ScrapeResult([], f"Unexpected error: {e}", "", "")
+
+                self.product_info.emit(url, result.product_id, result.product_title)
+                image_urls, error = result.images, result.error
 
                 if error or not image_urls:
                     self.status_update.emit(url, f"⚠ {error or 'Không tìm thấy ảnh'}")
