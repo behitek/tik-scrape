@@ -22,6 +22,14 @@ def _extract_product_id(url: str) -> str:
     return match.group(1) if match else ""
 
 
+def _extract_product_title(soup: BeautifulSoup) -> str:
+    """Extract the product title from the page's og:title meta tag."""
+    tag = soup.find("meta", property="og:title")
+    if tag and tag.get("content"):
+        return tag["content"].strip()
+    return ""
+
+
 def _extract_image_urls_from_json(data: dict) -> list[str]:
     """Walk known JSON paths to find slideshow image URLs."""
     try:
