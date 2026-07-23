@@ -29,3 +29,6 @@ ms-playwright/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Superpowers scratch state
+.superpowers/
