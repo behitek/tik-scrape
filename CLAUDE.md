@@ -10,15 +10,13 @@ TikTok product image scraper — a Windows desktop app that bulk-downloads image
 
 ```bash
 # Install dependencies
-poetry install
+uv sync
 
 # Run the app
-poetry run start
-# or
-python main.py
+uv run python main.py
 
 # Install Playwright browsers (required on first run)
-poetry run playwright install chromium
+uv run playwright install chromium
 ```
 
 ## Architecture

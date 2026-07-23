@@ -8,13 +8,13 @@ REM ============================================================
 setlocal
 
 echo [1/4] Installing PyInstaller ...
-poetry run pip install pyinstaller --quiet
+uv add --dev pyinstaller --quiet
 
 echo [2/4] Generating icon ...
-poetry run python assets/create_icon.py
+uv run python assets/create_icon.py
 
 echo [3/4] Building executable ...
-poetry run pyinstaller build.spec --clean --noconfirm
+uv run pyinstaller build.spec --clean --noconfirm
 
 echo [4/5] Packaging portable zip ...
 if exist dist\TikTokImageScraper (

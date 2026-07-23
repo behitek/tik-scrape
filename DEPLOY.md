@@ -9,17 +9,17 @@ Developer: Hieu Nguyen <hieunv.dev@gmail.com> · behitek.com
 Run these once on the build machine (Windows):
 
 ```bat
-# 1. Install Poetry (if not already installed)
-pip install poetry
+# 1. Install uv (if not already installed)
+pip install uv
 
 # 2. Install project dependencies
-poetry install
+uv sync
 
 # 3. Install Playwright browser (needed at runtime, not bundled)
-poetry run playwright install chromium
+uv run playwright install chromium
 
 # 4. Install PyInstaller
-poetry run pip install pyinstaller
+uv add --dev pyinstaller
 
 # 5. Install NSIS (for the installer — one-time, system-wide)
 #    Download from https://nsis.sourceforge.io/ and install to the default location:
@@ -34,13 +34,13 @@ Run each step from a PowerShell terminal in the project root:
 
 ```powershell
 # Step 1 — install/update PyInstaller
-poetry run pip install pyinstaller --quiet
+uv add --dev pyinstaller --quiet
 
 # Step 2 — regenerate icons
-poetry run python assets/create_icon.py
+uv run python assets/create_icon.py
 
 # Step 3 — build the app
-poetry run pyinstaller build.spec --clean --noconfirm
+uv run pyinstaller build.spec --clean --noconfirm
 
 # Step 4 — package portable zip
 Compress-Archive -Path dist\TikTokImageScraper\* `
@@ -98,7 +98,7 @@ dist\TikTokImageScraper-v1.0.0-win64.zip
 
 | Problem | Fix |
 |---|---|
-| `pyinstaller: command not found` | Run `poetry run pip install pyinstaller` first |
+| `pyinstaller: command not found` | Run `uv add --dev pyinstaller` first |
 | Missing Qt platform DLL on client | Ensure `platforms\qwindows.dll` is inside the dist folder |
 | Chromium fails to install on client | Client runs `"%LOCALAPPDATA%\Programs\Python\...\playwright" install chromium` or contacts developer |
 | App opens then immediately closes | Re-build without `console=False` in `build.spec` to see error output |
