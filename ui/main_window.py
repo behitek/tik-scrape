@@ -133,6 +133,10 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
+        import_btn = QPushButton("Nhập từ file…")
+        import_btn.clicked.connect(self._on_import_file)
+        btn_row.addWidget(import_btn)
+
         clear_btn = QPushButton("Xóa danh sách")
         clear_btn.clicked.connect(self._on_clear)
         btn_row.addWidget(clear_btn)
@@ -238,6 +242,29 @@ class MainWindow(QMainWindow):
         self._clear_rows()
         self._progress.setValue(0)
         self._progress_label.setText("0 / 0")
+
+    def _on_import_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Nhập danh sách URL từ file", "", "Text files (*.txt)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                urls = [line.strip() for line in f if line.strip()]
+        except OSError as e:
+            QMessageBox.warning(self, "Lỗi đọc file", f"Không thể đọc file:\n{e}")
+            return
+
+        if not urls:
+            QMessageBox.information(self, "Trống", "File không chứa URL nào.")
+            return
+
+        existing = self._url_input.toPlainText()
+        new_text = "\n".join(urls)
+        combined = f"{existing}\n{new_text}" if existing.strip() else new_text
+        self._url_input.setPlainText(combined)
+        logger.info("Đã nhập %d URL từ file %s", len(urls), path)
 
     def _on_start(self):
         text = self._url_input.toPlainText()
