@@ -75,20 +75,30 @@ def scrape_images(
         logger.debug("Page loaded — title: %s", page.title())
         product_id = _extract_product_id(page.url)
 
+        # Shared predicate for both the initial detection and the resolution
+        # wait below, so a CAPTCHA is only reported when an actual challenge
+        # is visible on the page (TikTok ships a hidden captcha-widget
+        # container on ordinary pages, which used to trigger false alarms).
+        _captcha_visible_js = (
+            "() => {"
+            "  const t = document.title.toLowerCase();"
+            "  const u = location.href.toLowerCase();"
+            "  if (t.includes('security check') || t.includes('captcha')) return true;"
+            "  if (u.includes('verify.tiktok.com') || u.includes('captcha')) return true;"
+            "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
+            "  if (el) {"
+            "    const s = window.getComputedStyle(el);"
+            "    return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;"
+            "  }"
+            "  return false;"
+            "}"
+        )
+
         def _is_captcha_page() -> bool:
-            title = page.title().lower()
-            current_url = page.url.lower()
-            if any(x in title for x in ("security check", "captcha", "verify")):
-                return True
-            if "verify.tiktok.com" in current_url or "captcha" in current_url:
-                return True
             try:
-                # TikTok slide-puzzle CAPTCHA renders inside a specific container
-                if page.locator("#captcha-verify-image, .captcha_verify_container, [id*='captcha']").count() > 0:
-                    return True
+                return bool(page.evaluate(_captcha_visible_js))
             except Exception:
-                pass
-            return False
+                return False
 
         if _is_captcha_page():
             logger.warning("CAPTCHA detected on: %s", url)
@@ -96,19 +106,7 @@ def scrape_images(
                 on_captcha()
             try:
                 page.wait_for_function(
-                    "() => {"
-                    "  const t = document.title.toLowerCase();"
-                    "  const u = location.href.toLowerCase();"
-                    "  if (t.includes('security check') || t.includes('captcha') || t.includes('verify')) return false;"
-                    "  if (u.includes('verify.tiktok.com') || u.includes('captcha')) return false;"
-                    "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
-                    "  if (el) {"
-                    "    const s = window.getComputedStyle(el);"
-                    "    const visible = s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;"
-                    "    if (visible) return false;"
-                    "  }"
-                    "  return true;"
-                    "}",
+                    f"() => !({_captcha_visible_js})()",
                     timeout=captcha_timeout_ms,
                 )
                 logger.info("CAPTCHA resolved for: %s", url)
