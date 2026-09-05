@@ -17,8 +17,12 @@ class ScrapeResult:
 
 
 def _extract_product_id(url: str) -> str:
-    """Extract the numeric product ID from a resolved TikTok product URL."""
-    match = re.search(r"/view/product/(\d+)", url)
+    """Extract the numeric product ID from a resolved TikTok product URL.
+
+    Handles both `www.tiktok.com/view/product/{id}` and
+    `shop.tiktok.com/pdp/{id}` (query string after the ID is ignored).
+    """
+    match = re.search(r"/(?:view/product|pdp)/(\d+)", url)
     return match.group(1) if match else ""
 
 

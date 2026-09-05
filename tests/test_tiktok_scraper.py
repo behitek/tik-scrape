@@ -8,6 +8,11 @@ def test_extract_product_id_from_product_url():
     assert _extract_product_id(url) == "1733446332351743967"
 
 
+def test_extract_product_id_from_shop_pdp_url():
+    url = "https://shop.tiktok.com/pdp/1733446332351743967?_d=1&other=params"
+    assert _extract_product_id(url) == "1733446332351743967"
+
+
 def test_extract_product_id_missing_returns_empty_string():
     url = "https://www.tiktok.com/@someuser/video/7123456789012345678"
     assert _extract_product_id(url) == ""

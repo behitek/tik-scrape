@@ -61,6 +61,12 @@ class UrlRowWidget(QFrame):
         self._refresh_url_label()
         top.addWidget(self._url_label)
 
+        self._product_id_label = QLabel()
+        self._product_id_label.setStyleSheet(f"color: {PALETTE['text_faint']}; font-size: 11px;")
+        self._product_id_label.setFixedWidth(140)
+        self._product_id_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(self._product_id_label)
+
         prefix_lbl = QLabel("Tiền tố:")
         prefix_lbl.setStyleSheet(f"color: {PALETTE['text_dim']}; font-size: 11px;")
         top.addWidget(prefix_lbl)
@@ -116,6 +122,7 @@ class UrlRowWidget(QFrame):
     def set_product_info(self, product_id: str, title: str):
         self.product_id = product_id
         self.product_title = title
+        self._product_id_label.setText(f"ID: {product_id}" if product_id else "")
         self._refresh_url_label()
 
     def _refresh_url_label(self):
