@@ -119,6 +119,9 @@ class UrlRowWidget(QFrame):
             color = PALETTE["text_dim"]
         self.status_label.setStyleSheet(f"color: {color}; font-size: 11px;")
 
+    def has_failed(self) -> bool:
+        return not self.thumbs and self.status_label.text().startswith("⚠")
+
     def set_product_info(self, product_id: str, title: str):
         self.product_id = product_id
         self.product_title = title

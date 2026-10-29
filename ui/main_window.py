@@ -159,6 +159,11 @@ class MainWindow(QMainWindow):
         self._stop_btn.clicked.connect(self._on_stop)
         bar.addWidget(self._stop_btn)
 
+        self._retry_btn = QPushButton("Chạy lại lỗi (0)")
+        self._retry_btn.setEnabled(False)
+        self._retry_btn.clicked.connect(self._on_retry_failed)
+        bar.addWidget(self._retry_btn)
+
         self._progress = QProgressBar()
         self._progress.setFixedHeight(16)
         self._progress.setMinimum(0)
@@ -242,6 +247,7 @@ class MainWindow(QMainWindow):
         self._clear_rows()
         self._progress.setValue(0)
         self._progress_label.setText("0 / 0")
+        self._update_retry_button()
 
     def _on_import_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -283,23 +289,42 @@ class MainWindow(QMainWindow):
         self._on_crawl()
 
     def _on_crawl(self):
-        if not self._rows:
+        self._crawl_rows(list(self._rows))
+
+    def _failed_rows(self) -> list[UrlRowWidget]:
+        return [row for row in self._rows if row.has_failed()]
+
+    def _update_retry_button(self):
+        n = len(self._failed_rows())
+        self._retry_btn.setText(f"Chạy lại lỗi ({n})")
+        self._retry_btn.setEnabled(n > 0 and self._start_btn.isEnabled())
+
+    def _on_retry_failed(self):
+        rows = self._failed_rows()
+        if rows:
+            logger.info("Chạy lại %d URL bị lỗi", len(rows))
+            self._crawl_rows(rows)
+
+    def _crawl_rows(self, rows: list[UrlRowWidget]):
+        if not rows:
             return
         self._start_btn.setEnabled(False)
+        self._retry_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
         self._progress.setValue(0)
-        self._progress.setMaximum(len(self._rows))
+        self._progress.setMaximum(len(rows))
+        self._progress_label.setText(f"0 / {len(rows)}")
 
-        for row in self._rows:
+        for row in rows:
             row.set_status("Đang chờ…")
 
         config = self._config_panel.get_config()
         logger.info(
             "Bắt đầu thu thập: %d URL, human_sim=%s, delay=%.1f–%.1fs",
-            len(self._rows), config["human_sim"], config["min_delay"], config["max_delay"],
+            len(rows), config["human_sim"], config["min_delay"], config["max_delay"],
         )
 
-        urls = [row.url for row in self._rows]
+        urls = [row.url for row in rows]
         self._worker = CrawlWorker(urls, config=config)
         self._worker.images_ready.connect(self._on_images_ready)
         self._worker.status_update.connect(self._on_status_update)
@@ -361,6 +386,7 @@ class MainWindow(QMainWindow):
     def _on_crawl_finished(self):
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
+        self._update_retry_button()
         total_images = sum(len(row.thumbs) for row in self._rows)
         logger.info("Đã xử lý tất cả URL — tổng %d ảnh", total_images)
 
