@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 APP_NAME      = "TikTok Image Scraper"
-APP_VERSION   = "1.0.0"
+APP_VERSION   = "1.1.0"
 ORG_NAME      = "Hieu Nguyen"
 ORG_DOMAIN    = "behitek.com"
 

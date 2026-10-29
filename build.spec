@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for TikTok Image Scraper v1.0.0
+PyInstaller spec for TikTok Image Scraper v1.1.0
 Developer: Hieu Nguyen <hieunv.dev@gmail.com> — behitek.com
 Released:  June 5, 2026
 """

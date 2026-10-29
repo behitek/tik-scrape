@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  Build script — TikTok Image Scraper v1.0.0
+REM  Build script — TikTok Image Scraper v1.1.0
 REM  Developer: Hieu Nguyen <hieunv.dev@gmail.com>
 REM  Website:   behitek.com
 REM ============================================================
@@ -18,7 +18,7 @@ uv run pyinstaller build.spec --clean --noconfirm
 
 echo [4/5] Packaging portable zip ...
 if exist dist\TikTokImageScraper (
-    powershell -Command "Compress-Archive -Path 'dist\TikTokImageScraper\*' -DestinationPath 'dist\TikTokImageScraper-v1.0.0-win64.zip' -Force"
+    powershell -Command "Compress-Archive -Path 'dist\TikTokImageScraper\*' -DestinationPath 'dist\TikTokImageScraper-v1.1.0-win64.zip' -Force"
 ) else (
     echo ERROR: Build failed — dist folder not found.
     exit /b 1
@@ -43,7 +43,7 @@ if %MAKENSIS%=="" (
 echo.
 echo Build complete!
 echo   Folder   : dist\TikTokImageScraper\
-echo   Portable : dist\TikTokImageScraper-v1.0.0-win64.zip
-if not %MAKENSIS%=="" echo   Installer: dist\TikTokImageScraper-v1.0.0-Setup-win64.exe
+echo   Portable : dist\TikTokImageScraper-v1.1.0-win64.zip
+if not %MAKENSIS%=="" echo   Installer: dist\TikTokImageScraper-v1.1.0-Setup-win64.exe
 
 endlocal

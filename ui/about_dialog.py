@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from ui.theme import PALETTE
 
 APP_NAME    = "TikTok Image Scraper"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_DATE    = "June 5, 2026"
 DEV_NAME    = "Hieu Nguyen"
 DEV_EMAIL   = "hieunv.dev@gmail.com"

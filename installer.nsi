@@ -1,5 +1,5 @@
 ; ============================================================
-;  NSIS installer script — TikTok Image Scraper v1.0.0
+;  NSIS installer script — TikTok Image Scraper v1.1.0
 ;  Developer: Hieu Nguyen <hieunv.dev@gmail.com>
 ;  Website:   behitek.com
 ; ============================================================
@@ -8,7 +8,9 @@ Unicode True
 SetCompressor /SOLID lzma
 
 !define APP_NAME      "TikTok Image Scraper"
-!define APP_VERSION   "1.0.0"
+!ifndef APP_VERSION
+!define APP_VERSION   "1.1.0"
+!endif
 !define APP_PUBLISHER "Hieu Nguyen"
 !define APP_URL       "https://behitek.com"
 !define APP_EXE       "TikTokImageScraper.exe"

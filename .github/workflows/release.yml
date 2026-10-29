@@ -25,9 +25,15 @@ jobs:
       - name: Build executable (PyInstaller)
         run: uv run pyinstaller build.spec --clean --noconfirm
 
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $v = (uv run python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])").Trim()
+          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Package portable zip
         shell: pwsh
-        run: Compress-Archive -Path 'dist\TikTokImageScraper\*' -DestinationPath 'dist\TikTokImageScraper-v1.0.0-win64.zip' -Force
+        run: Compress-Archive -Path 'dist\TikTokImageScraper\*' -DestinationPath "dist\TikTokImageScraper-v$env:APP_VERSION-win64.zip" -Force
 
       - name: Install NSIS
         run: choco install nsis -y --no-progress
@@ -35,7 +41,7 @@ jobs:
       - name: Build installer (NSIS)
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" installer.nsi
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DAPP_VERSION=$env:APP_VERSION" installer.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4

@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 import re
 from dataclasses import dataclass
 
@@ -61,6 +62,46 @@ def _extract_image_urls_from_json(data: dict) -> list[str]:
     return []
 
 
+class WafRedirectError(Exception):
+    """TikTok's WAF kept redirecting the navigation to its login page."""
+
+
+_WAF_MAX_ATTEMPTS = 3
+_WAF_BACKOFF_MS = (3000, 6000)  # random range, multiplied by the attempt number
+
+
+def _goto_with_retry(page, url: str, timeout_ms: int, max_attempts: int = _WAF_MAX_ATTEMPTS) -> None:
+    """page.goto that retries when TikTok's WAF bounces us to /login.
+
+    The redirect is intermittent and per-request (the same URL works on the
+    next try), so waiting a few seconds and navigating again is enough.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            if "/login" not in str(page.url):
+                return
+            reason = "redirected to login page"
+        except Exception as e:
+            if "interrupted by another navigation" not in str(e):
+                raise
+            reason = "navigation interrupted by login redirect"
+
+        if attempt == max_attempts:
+            raise WafRedirectError(reason)
+        delay = random.randint(*_WAF_BACKOFF_MS) * attempt
+        logger.warning(
+            "WAF %s for %s — retry %d/%d in %.1fs",
+            reason, url, attempt, max_attempts - 1, delay / 1000,
+        )
+        page.wait_for_timeout(delay)
+
+
+def _short_error(e: Exception, limit: int = 140) -> str:
+    first_line = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+    return first_line if len(first_line) <= limit else first_line[: limit - 1] + "…"
+
+
 def scrape_images(
     url: str,
     page,
@@ -75,7 +116,7 @@ def scrape_images(
     logger.info("Navigating to: %s", url)
     product_id = ""
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=page_timeout_ms)
+        _goto_with_retry(page, url, page_timeout_ms)
         logger.debug("Page loaded — title: %s", page.title())
         product_id = _extract_product_id(page.url)
 
@@ -149,9 +190,14 @@ def scrape_images(
             logger.debug("No slick slider — continuing with content parse")
 
         content = page.content()
+    except WafRedirectError as e:
+        logger.error("TikTok WAF login redirect persisted for %s (%s)", url, e)
+        return ScrapeResult(
+            [], "TikTok chuyển hướng sang trang đăng nhập (WAF) — hãy chạy lại", product_id, ""
+        )
     except Exception as e:
         logger.error("Browser navigation error for %s: %s", url, e, exc_info=True)
-        return ScrapeResult([], f"Browser error: {e}", product_id, "")
+        return ScrapeResult([], f"Browser error: {_short_error(e)}", product_id, "")
 
     soup = BeautifulSoup(content, "html.parser")
     product_title = _extract_product_title(soup)

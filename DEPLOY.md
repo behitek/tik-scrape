@@ -1,4 +1,4 @@
-# Deployment Guide — TikTok Image Scraper v1.0.0
+# Deployment Guide — TikTok Image Scraper v1.1.0
 
 Developer: Hieu Nguyen <hieunv.dev@gmail.com> · behitek.com
 
@@ -44,7 +44,7 @@ uv run pyinstaller build.spec --clean --noconfirm
 
 # Step 4 — package portable zip
 Compress-Archive -Path dist\TikTokImageScraper\* `
-                 -DestinationPath dist\TikTokImageScraper-v1.0.0-win64.zip `
+                 -DestinationPath dist\TikTokImageScraper-v1.1.0-win64.zip `
                  -Force
 
 # Step 5 — build installer (requires NSIS installed)
@@ -61,8 +61,8 @@ dist\
   TikTokImageScraper\                          <- runnable folder (all files needed)
     TikTokImageScraper.exe                     <- main executable
     ...
-  TikTokImageScraper-v1.0.0-win64.zip         <- portable distribution
-  TikTokImageScraper-v1.0.0-Setup-win64.exe   <- Windows installer
+  TikTokImageScraper-v1.1.0-win64.zip         <- portable distribution
+  TikTokImageScraper-v1.1.0-Setup-win64.exe   <- Windows installer
 ```
 
 ---
@@ -71,17 +71,17 @@ dist\
 
 Preferred (installer):
 ```
-dist\TikTokImageScraper-v1.0.0-Setup-win64.exe
+dist\TikTokImageScraper-v1.1.0-Setup-win64.exe
 ```
 
 Alternative (portable):
 ```
-dist\TikTokImageScraper-v1.0.0-win64.zip
+dist\TikTokImageScraper-v1.1.0-win64.zip
 ```
 
 **Installer — client steps (no Python needed):**
 
-1. Run `TikTokImageScraper-v1.0.0-Setup-win64.exe`
+1. Run `TikTokImageScraper-v1.1.0-Setup-win64.exe`
 2. Follow the wizard — installs to `Program Files`, creates Start Menu shortcut
 3. On first launch, the app will offer to install Chromium automatically (~150 MB, one-time)
 4. Done — app appears in Start Menu and Add/Remove Programs
@@ -115,7 +115,7 @@ Right-click `TikTokImageScraper.exe` → Properties → Details to see:
 | Field | Value |
 |---|---|
 | Product name | TikTok Image Scraper |
-| Product version | 1.0.0 |
+| Product version | 1.1.0 |
 | Company name | Hieu Nguyen — behitek.com |
 | Copyright | © 2026 Hieu Nguyen |
 | Contact | hieunv.dev@gmail.com |

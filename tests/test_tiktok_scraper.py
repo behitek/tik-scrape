@@ -1,6 +1,9 @@
 from bs4 import BeautifulSoup
 
-from scraper.tiktok_scraper import _extract_product_id, _extract_product_title, scrape_images, ScrapeResult
+from scraper.tiktok_scraper import (
+    _extract_product_id, _extract_product_title, _goto_with_retry, _short_error,
+    scrape_images, ScrapeResult,
+)
 
 
 def test_extract_product_id_from_product_url():
@@ -77,3 +80,55 @@ def test_scrape_images_returns_scrape_result_with_product_metadata():
         product_id="1733446332351743967",
         product_title="Test Product Title",
     )
+
+
+class _WafPage(_FakePage):
+    """Fails `fail_times` navigations with the WAF interruption, then succeeds."""
+
+    def __init__(self, fail_times: int, mode: str = "raise"):
+        super().__init__("<html></html>", "https://www.tiktok.com/view/product/1")
+        self.fail_times = fail_times
+        self.mode = mode
+        self.goto_calls = 0
+        self.waits = []
+
+    def goto(self, url, wait_until=None, timeout=None):
+        self.goto_calls += 1
+        if self.goto_calls <= self.fail_times:
+            if self.mode == "raise":
+                raise RuntimeError(
+                    'Page.goto: Navigation to "x" is interrupted by another navigation to "https://www.tiktok.com/login/?a=b"'
+                )
+            self.url = "https://www.tiktok.com/login/?enter_method=waf_force_login"
+        else:
+            self.url = "https://www.tiktok.com/view/product/1"
+
+    def wait_for_timeout(self, ms):
+        self.waits.append(ms)
+
+
+def test_goto_retries_after_waf_interruption():
+    page = _WafPage(fail_times=2)
+    _goto_with_retry(page, "https://vt.tiktok.com/x", 30000)
+    assert page.goto_calls == 3
+    assert len(page.waits) == 2
+
+
+def test_goto_retries_when_landing_on_login_page():
+    page = _WafPage(fail_times=1, mode="redirect")
+    _goto_with_retry(page, "https://vt.tiktok.com/x", 30000)
+    assert page.goto_calls == 2
+
+
+def test_scrape_images_reports_waf_error_after_retries_exhausted():
+    page = _WafPage(fail_times=99)
+    result = scrape_images("https://vt.tiktok.com/x", page)
+    assert page.goto_calls == 3
+    assert result.images == []
+    assert "WAF" in result.error
+
+
+def test_short_error_keeps_first_line_and_truncates():
+    assert _short_error(RuntimeError("a" * 500 + "\nsecond")) .endswith("…")
+    assert len(_short_error(RuntimeError("a" * 500))) == 140
+    assert _short_error(RuntimeError("one\ntwo")) == "one"

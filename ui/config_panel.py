@@ -183,7 +183,7 @@ class ConfigPanel(QWidget):
 
         self.min_delay_spin = QDoubleSpinBox()
         self.min_delay_spin.setRange(0.0, 60.0)
-        self.min_delay_spin.setValue(0.5)
+        self.min_delay_spin.setValue(2.0)
         self.min_delay_spin.setSuffix("  s")
         self.min_delay_spin.setSingleStep(0.5)
         self.min_delay_spin.setFixedWidth(110)
@@ -191,7 +191,7 @@ class ConfigPanel(QWidget):
 
         self.max_delay_spin = QDoubleSpinBox()
         self.max_delay_spin.setRange(0.0, 120.0)
-        self.max_delay_spin.setValue(2.0)
+        self.max_delay_spin.setValue(4.0)
         self.max_delay_spin.setSuffix("  s")
         self.max_delay_spin.setSingleStep(0.5)
         self.max_delay_spin.setFixedWidth(110)

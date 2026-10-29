@@ -1,6 +1,6 @@
 [project]
 name = "tik-scrape"
-version = "1.0.0"
+version = "1.1.0"
 description = "TikTok product image scraper desktop app"
 authors = [
     {name = "Hieu Nguyen", email = "hieunv.dev@gmail.com"}
