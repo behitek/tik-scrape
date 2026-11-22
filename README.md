@@ -8,7 +8,8 @@ A Windows desktop app for bulk-downloading images from TikTok slideshow (photo) 
 - Crawls posts in a persistent browser session and extracts slideshow images
 - Per-URL thumbnail grid with click-to-select and hover preview
 - Optional filename prefix per URL/row
-- Pauses and prompts for manual action if TikTok shows a CAPTCHA
+- Automatically solves TikTok CAPTCHAs through the CaptchaSolve API
+  (falls back to a manual prompt if solving fails)
 - Exports a `products.csv` alongside the downloaded images
 
 ## Requirements
@@ -33,9 +34,10 @@ uv run python main.py
 ## Usage
 
 1. Launch the app and load a `.txt` file (one URL per line) or an `.xlsx` file with a `url` column (and optional `prefix` column). Use **Download Template** to generate a sample spreadsheet.
-2. Click **Crawl All** to fetch images for every loaded URL.
-3. Click thumbnails to select the images you want to keep for each row.
-4. Click **Save Selected** and choose a destination folder — selected images are saved as JPEGs, prefixed by each row's prefix, along with a `products.csv` summary.
+2. In **Settings → Xử lý CAPTCHA**, paste your CaptchaSolve API key and press **Kiểm tra** to verify it. The key is stored locally on the machine.
+3. Click **Crawl All** to fetch images for every loaded URL.
+4. Click thumbnails to select the images you want to keep for each row.
+5. Click **Save Selected** and choose a destination folder — selected images are saved as JPEGs, prefixed by each row's prefix, along with a `products.csv` summary.
 
 ## Architecture
 
@@ -43,6 +45,7 @@ uv run python main.py
 main.py                   # Entry point: QApplication setup + first-run Chromium install
 scraper/
   tiktok_scraper.py       # Core extraction: Playwright + JSON/__NEXT_DATA__ parsing
+  captcha_solver.py       # CaptchaSolve API client for automatic TikTok CAPTCHA solving
   worker.py               # QThread worker: runs scraping, downloads images, emits Qt signals
   csv_export.py           # Writes products.csv for saved images
 ui/

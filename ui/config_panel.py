@@ -1,11 +1,32 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QGroupBox, QCheckBox, QDoubleSpinBox, QSpinBox,
-    QLabel, QScrollArea, QPlainTextEdit,
+    QLabel, QScrollArea, QPlainTextEdit, QLineEdit, QPushButton,
 )
 
+from scraper.captcha_solver import CaptchaSolver, DEFAULT_BASE_URL
 from ui.theme import PALETTE
+
+_SETTING_API_KEY = "captcha/api_key"
+_SETTING_AUTO_SOLVE = "captcha/auto_solve"
+
+
+class _KeyTestWorker(QThread):
+    """Checks an API key against the resolver without freezing the UI."""
+
+    result = Signal(bool, str)
+
+    def __init__(self, api_key: str, parent=None):
+        super().__init__(parent)
+        self._api_key = api_key
+
+    def run(self):
+        try:
+            balance = CaptchaSolver(self._api_key).get_balance()
+            self.result.emit(True, f"✓ Kết nối thành công — số dư: {balance:g}")
+        except Exception as e:
+            self.result.emit(False, f"✗ {e}")
 
 _DEFAULT_PREFIXES = """\
 AMBER01
@@ -113,7 +134,9 @@ INKS100"""
 class ConfigPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._key_test_worker: _KeyTestWorker | None = None
         self._build_ui()
+        self._load_settings()
 
     def _build_ui(self):
         scroll = QScrollArea(self)
@@ -212,6 +235,54 @@ class ConfigPanel(QWidget):
         layout = QVBoxLayout(group)
         layout.setSpacing(12)
 
+        self.auto_solve_check = QCheckBox("Tự động giải CAPTCHA bằng API CaptchaSolve")
+        self.auto_solve_check.setChecked(True)
+        self.auto_solve_check.setToolTip(
+            "Gửi ảnh CAPTCHA lên captcha.kimidev.net để giải tự động.\n"
+            "Cần API key bên dưới. Nếu giải không được, app sẽ chờ bạn giải tay."
+        )
+        self.auto_solve_check.toggled.connect(self._on_settings_changed)
+        layout.addWidget(self.auto_solve_check)
+
+        key_row = QHBoxLayout()
+        key_row.setSpacing(6)
+        key_row.addWidget(QLabel("API key:"))
+
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_edit.setPlaceholderText("sk_…")
+        self.api_key_edit.setClearButtonEnabled(True)
+        self.api_key_edit.editingFinished.connect(self._on_settings_changed)
+        key_row.addWidget(self.api_key_edit, 1)
+
+        self.show_key_btn = QPushButton("Hiện")
+        self.show_key_btn.setCheckable(True)
+        self.show_key_btn.setFixedWidth(58)
+        self.show_key_btn.toggled.connect(self._on_toggle_key_visibility)
+        key_row.addWidget(self.show_key_btn)
+
+        self.test_key_btn = QPushButton("Kiểm tra")
+        self.test_key_btn.setFixedWidth(80)
+        self.test_key_btn.clicked.connect(self._on_test_key)
+        key_row.addWidget(self.test_key_btn)
+
+        layout.addLayout(key_row)
+
+        self.key_status_label = QLabel()
+        self.key_status_label.setWordWrap(True)
+        self.key_status_label.setStyleSheet(f"color: {PALETTE['text_dim']}; font-size: 11px;")
+        layout.addWidget(self.key_status_label)
+
+        note = QLabel(
+            'API key lưu trên máy này. Lấy key tại '
+            '<a href="https://captcha.kimidev.net/dashboard/services/captcha">'
+            'captcha.kimidev.net</a> → mục API Key.'
+        )
+        note.setOpenExternalLinks(True)
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {PALETTE['text_dim']}; font-size: 11px;")
+        layout.addWidget(note)
+
         self.sound_notify_check = QCheckBox("Phát âm thanh khi phát hiện CAPTCHA")
         self.sound_notify_check.setChecked(True)
         layout.addWidget(self.sound_notify_check)
@@ -234,7 +305,68 @@ class ConfigPanel(QWidget):
         layout.addLayout(form)
         return group
 
+    # ── CAPTCHA API key persistence ─────────────────────────────────────────
+
+    def _load_settings(self):
+        settings = QSettings()
+        api_key = settings.value(_SETTING_API_KEY, "", type=str)
+        auto_solve = settings.value(_SETTING_AUTO_SOLVE, True, type=bool)
+        self.api_key_edit.setText(api_key)
+        self.auto_solve_check.setChecked(auto_solve)
+        self._update_key_status()
+
+    def _on_settings_changed(self):
+        self._save_settings()
+        self._update_key_status()
+
+    def _save_settings(self):
+        settings = QSettings()
+        settings.setValue(_SETTING_API_KEY, self.api_key_edit.text().strip())
+        settings.setValue(_SETTING_AUTO_SOLVE, self.auto_solve_check.isChecked())
+        settings.sync()
+
+    def _update_key_status(self):
+        if self._key_test_worker and self._key_test_worker.isRunning():
+            return
+        if self.api_key_edit.text().strip():
+            self.key_status_label.setText(
+                "Đã lưu API key — CAPTCHA sẽ được giải tự động khi có thể."
+            )
+        else:
+            self.key_status_label.setText(
+                "Chưa có API key — CAPTCHA sẽ phải giải tay trong cửa sổ trình duyệt."
+            )
+
+    def _on_toggle_key_visibility(self, shown: bool):
+        self.api_key_edit.setEchoMode(
+            QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password
+        )
+        self.show_key_btn.setText("Ẩn" if shown else "Hiện")
+
+    def _on_test_key(self):
+        api_key = self.api_key_edit.text().strip()
+        if not api_key:
+            self.key_status_label.setText("⚠ Hãy nhập API key trước khi kiểm tra.")
+            return
+        self._save_settings()
+        self.test_key_btn.setEnabled(False)
+        self.key_status_label.setText("Đang kiểm tra API key…")
+
+        worker = _KeyTestWorker(api_key, self)
+        worker.result.connect(self._on_key_test_result)
+        worker.finished.connect(worker.deleteLater)
+        self._key_test_worker = worker
+        worker.start()
+
+    def _on_key_test_result(self, ok: bool, message: str):
+        self.test_key_btn.setEnabled(True)
+        color = PALETTE["success"] if ok else PALETTE["error"]
+        self.key_status_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+        self.key_status_label.setText(message)
+        self._key_test_worker = None
+
     def get_config(self) -> dict:
+        self._save_settings()
         return {
             "human_sim": self.human_sim_check.isChecked(),
             "min_delay": self.min_delay_spin.value(),
@@ -243,6 +375,9 @@ class ConfigPanel(QWidget):
             "sound_notify": self.sound_notify_check.isChecked(),
             "tray_notify": self.tray_notify_check.isChecked(),
             "captcha_timeout_ms": self.captcha_timeout_spin.value() * 60 * 1000,
+            "captcha_api_key": self.api_key_edit.text().strip(),
+            "captcha_auto_solve": self.auto_solve_check.isChecked(),
+            "captcha_base_url": DEFAULT_BASE_URL,
         }
 
     def get_prefix_list(self) -> list[str]:

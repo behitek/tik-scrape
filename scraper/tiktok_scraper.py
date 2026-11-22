@@ -1,12 +1,95 @@
+import base64
 import json
 import logging
 import random
 import re
 from dataclasses import dataclass
 
+import requests
 from bs4 import BeautifulSoup
 
+from scraper.captcha_solver import (
+    SUBTYPE_3D, SUBTYPE_TWO_OBJECTS, CaptchaSolver, CaptchaSolverError,
+)
+
 logger = logging.getLogger(__name__)
+
+_IMAGE_FETCH_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+# Shared predicate for both the initial detection and the resolution wait, so
+# a CAPTCHA is only reported when an actual challenge is visible on the page
+# (TikTok ships a hidden captcha-widget container on ordinary pages, which
+# used to trigger false alarms).
+_CAPTCHA_VISIBLE_JS = (
+    "() => {"
+    "  const t = document.title.toLowerCase();"
+    "  const u = location.href.toLowerCase();"
+    "  if (t.includes('security check') || t.includes('captcha')) return true;"
+    "  if (u.includes('verify.tiktok.com') || u.includes('captcha')) return true;"
+    "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
+    "  if (el) {"
+    "    const s = window.getComputedStyle(el);"
+    "    return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;"
+    "  }"
+    "  return false;"
+    "}"
+)
+
+# Reads everything needed to hand a challenge to the solver and to apply the
+# answer afterwards: subtype, image sources, and on-screen geometry.
+_CAPTCHA_STATE_JS = """() => {
+  const isVisible = (el) => {
+    if (!el) return false;
+    const s = window.getComputedStyle(el);
+    return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;
+  };
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return {x: r.x, y: r.y, w: r.width, h: r.height};
+  };
+  const container = document.querySelector('.captcha_verify_container');
+  if (!isVisible(container)) return null;
+
+  const text = (container.innerText || '').toLowerCase();
+  const pieceEl = container.querySelector('.captcha_verify_img_slide');
+  let subtype = null;
+  if (isVisible(pieceEl)) subtype = 'puzzle';
+  else if (text.includes('rotate') || text.includes('xoay')) subtype = 'rotate';
+  else if (text.includes('3d')) subtype = '3d';
+  else if (text.includes('two') || text.includes('objects') || text.includes('vật thể')) subtype = 'two_objects';
+
+  let imageEl = document.querySelector('#captcha-verify-image');
+  if (!imageEl) {
+    imageEl = container.querySelector('.captcha_verify_img--wrapper img, img');
+  }
+  let imageSrc = null;
+  if (imageEl) {
+    if (imageEl.tagName === 'CANVAS') imageSrc = imageEl.toDataURL('image/png');
+    else imageSrc = imageEl.currentSrc || imageEl.src || null;
+  }
+  const pieceSrc = pieceEl ? (pieceEl.currentSrc || pieceEl.src || null) : null;
+
+  const thumbEl = container.querySelector('.secsdk-captcha-drag-icon')
+    || container.querySelector('.captcha_verify_slide--button')
+    || container.querySelector('.captcha_verify_slide--slidebar');
+  const sliderEl = container.querySelector('.captcha_verify_slide--slidebar')
+    || container.querySelector('.captcha_verify_slide--button');
+
+  return {
+    subtype: subtype,
+    text: (container.innerText || '').slice(0, 160),
+    imageSrc: imageSrc,
+    pieceSrc: pieceSrc,
+    imageRect: imageEl ? rect(imageEl) : null,
+    natural: imageEl ? {w: imageEl.naturalWidth || 0, h: imageEl.naturalHeight || 0} : null,
+    thumbRect: thumbEl ? rect(thumbEl) : null,
+    sliderRect: sliderEl ? rect(sliderEl) : null,
+  };
+}"""
 
 
 @dataclass
@@ -102,6 +185,246 @@ def _short_error(e: Exception, limit: int = 140) -> str:
     return first_line if len(first_line) <= limit else first_line[: limit - 1] + "…"
 
 
+# ── Automatic CAPTCHA solving ───────────────────────────────────────────────
+
+
+def _read_captcha_state(page) -> dict | None:
+    """Return the visible challenge's DOM/geometry, or None if not shown."""
+    try:
+        return page.evaluate(_CAPTCHA_STATE_JS)
+    except Exception as e:
+        logger.debug("Could not read CAPTCHA state: %s", e)
+        return None
+
+
+def _wait_for_captcha_assets(page, state: dict | None, timeout_ms: int = 5_000) -> dict | None:
+    """Wait until the challenge image (and puzzle piece) have a src.
+
+    The widget container can become visible a moment before its images load;
+    submitting an empty base64 image would waste an API call and fall back to
+    manual for no reason.
+    """
+    def ready(s: dict | None) -> bool:
+        if not s or not s.get("imageSrc"):
+            return False
+        if s.get("subtype") == "puzzle" and not s.get("pieceSrc"):
+            return False
+        return True
+
+    waited = 0
+    while state is not None and not ready(state) and waited < timeout_ms:
+        page.wait_for_timeout(250)
+        waited += 250
+        state = _read_captcha_state(page)
+    return state
+
+
+def _fetch_image_b64(page, src: str | None) -> str:
+    """Fetch a challenge image and return it as base64 (or data URI)."""
+    if not src:
+        return ""
+    if src.startswith("data:"):
+        return src
+    if src.startswith("blob:"):
+        try:
+            return page.evaluate(
+                "async (u) => {"
+                "  const blob = await (await fetch(u)).blob();"
+                "  return await new Promise((resolve, reject) => {"
+                "    const reader = new FileReader();"
+                "    reader.onload = () => resolve(reader.result);"
+                "    reader.onerror = () => reject(reader.error);"
+                "    reader.readAsDataURL(blob);"
+                "  });"
+                "}",
+                src,
+            )
+        except Exception as e:
+            logger.warning("Could not read blob CAPTCHA image: %s", e)
+            return ""
+    try:
+        resp = requests.get(
+            src,
+            timeout=20,
+            headers={"User-Agent": _IMAGE_FETCH_UA, "Referer": "https://www.tiktok.com/"},
+        )
+        resp.raise_for_status()
+        return base64.b64encode(resp.content).decode("ascii")
+    except Exception as e:
+        logger.warning("Could not download CAPTCHA image %s: %s", src[:100], e)
+        return ""
+
+
+def _drag_distance(state: dict, solution) -> float | None:
+    """Convert a solver solution into a horizontal slider drag in CSS pixels."""
+    slider = state.get("sliderRect") or {}
+
+    # Rotate challenges: the returned angle is mapped onto the full slider
+    # travel (TikTok's rotate slider sweeps 360° end to end).
+    if solution.angle is not None and solution.x is None:
+        thumb = state.get("thumbRect") or {}
+        track = max(1.0, float(slider.get("w") or 0) - float(thumb.get("w") or 0))
+        return track * (solution.angle % 360.0) / 360.0
+
+    image_rect = state.get("imageRect") or {}
+    display_w = float(image_rect.get("w") or 0)
+
+    # `proportion` is the target position relative to the image width and is
+    # already independent of the image's natural resolution.
+    if solution.proportion is not None and display_w:
+        return solution.proportion * display_w
+
+    if solution.x is not None:
+        natural_w = float((state.get("natural") or {}).get("w") or 0)
+        if display_w and natural_w:
+            return solution.x * display_w / natural_w
+        return solution.x
+
+    return None
+
+
+def _human_drag(page, start_x: float, start_y: float, dx: float, dy: float = 0.0):
+    """Drag with a slight ease-out curve and jitter instead of a teleport."""
+    page.mouse.move(start_x, start_y)
+    page.wait_for_timeout(random.randint(80, 180))
+    page.mouse.down()
+    page.wait_for_timeout(random.randint(60, 140))
+
+    steps = random.randint(18, 30)
+    for i in range(1, steps + 1):
+        t = i / steps
+        eased = 1 - (1 - t) ** 3
+        x = start_x + dx * eased + random.uniform(-0.6, 0.6)
+        y = start_y + dy * eased + random.uniform(-0.5, 0.5)
+        page.mouse.move(x, y)
+        page.wait_for_timeout(random.randint(8, 22))
+
+    page.wait_for_timeout(random.randint(80, 180))
+    page.mouse.up()
+
+
+def _apply_captcha_solution(page, state: dict, solution) -> bool:
+    """Perform the mouse gesture that answers the challenge."""
+    distance = _drag_distance(state, solution)
+    if distance is None or distance <= 1:
+        logger.warning(
+            "CAPTCHA solution has no usable position: %s (state subtype=%s)",
+            solution.raw, state.get("subtype"),
+        )
+        return False
+
+    thumb = state.get("thumbRect") or state.get("sliderRect")
+    if not thumb:
+        logger.warning("CAPTCHA slider not found — cannot apply solution")
+        return False
+
+    start_x = thumb["x"] + thumb["w"] / 2
+    start_y = thumb["y"] + thumb["h"] / 2
+    logger.info(
+        "Applying CAPTCHA solution %s — dragging %.1f px from (%.1f, %.1f)",
+        solution.raw, distance, start_x, start_y,
+    )
+    _human_drag(page, start_x, start_y, distance)
+    return True
+
+
+def _wait_captcha_gone(page, timeout_ms: int) -> bool:
+    try:
+        page.wait_for_function(
+            f"() => !({_CAPTCHA_VISIBLE_JS})()",
+            timeout=timeout_ms,
+        )
+        return True
+    except Exception:
+        # Navigation can destroy the execution context; re-read the state.
+        try:
+            return not page.evaluate(_CAPTCHA_VISIBLE_JS)
+        except Exception:
+            return _read_captcha_state(page) is None
+
+
+def _auto_solve_captcha(
+    page,
+    solver: CaptchaSolver,
+    on_solving=None,
+    max_attempts: int = 2,
+    solve_timeout_ms: int = 12_000,
+) -> bool:
+    """Try to solve the visible CAPTCHA automatically.
+
+    Each attempt reads a fresh challenge from the page, asks the resolver for
+    an answer, and performs the drag. Returns True only when the challenge
+    actually disappears.
+    """
+    for attempt in range(1, max_attempts + 1):
+        state = _read_captcha_state(page)
+        if state is None:
+            # The widget container may be missing while the page is still a
+            # security-check interstitial — only report success if the whole
+            # CAPTCHA predicate is gone.
+            try:
+                return not bool(page.evaluate(_CAPTCHA_VISIBLE_JS))
+            except Exception:
+                return True
+
+        # These need object selection/clicks that this client cannot drive
+        # yet — don't spend solver credits on them.
+        if state.get("subtype") in (SUBTYPE_3D, SUBTYPE_TWO_OBJECTS):
+            logger.warning(
+                "CAPTCHA subtype %r needs manual interaction — falling back",
+                state.get("subtype"),
+            )
+            return False
+
+        state = _wait_for_captcha_assets(page, state)
+        if state is None:
+            try:
+                return not bool(page.evaluate(_CAPTCHA_VISIBLE_JS))
+            except Exception:
+                return True
+
+        if attempt == 1 and on_solving:
+            on_solving()
+
+        logger.info(
+            "Auto-solving CAPTCHA (attempt %d/%d, subtype=%s)",
+            attempt, max_attempts, state.get("subtype") or "auto",
+        )
+        image_b64 = _fetch_image_b64(page, state.get("imageSrc"))
+        if not image_b64:
+            logger.warning("No CAPTCHA image could be captured — falling back to manual")
+            return False
+        piece_b64 = _fetch_image_b64(page, state.get("pieceSrc")) or None
+
+        try:
+            solution = solver.solve_tiktok(
+                image_b64,
+                piece_b64=piece_b64,
+                subtype=state.get("subtype"),
+            )
+        except CaptchaSolverError as e:
+            logger.error("CAPTCHA resolver failed: %s", e)
+            return False
+        except Exception:
+            logger.exception("Unexpected CAPTCHA resolver error")
+            return False
+
+        if not _apply_captcha_solution(page, state, solution):
+            return False
+
+        if _wait_captcha_gone(page, solve_timeout_ms):
+            logger.info("CAPTCHA solved automatically on attempt %d", attempt)
+            return True
+
+        logger.warning("CAPTCHA still visible after attempt %d — retrying", attempt)
+        page.wait_for_timeout(1200)
+
+    try:
+        return not bool(page.evaluate(_CAPTCHA_VISIBLE_JS))
+    except Exception:
+        return True
+
+
 def scrape_images(
     url: str,
     page,
@@ -109,9 +432,14 @@ def scrape_images(
     on_captcha_solved=None,
     captcha_timeout_ms: int = 180_000,
     page_timeout_ms: int = 30_000,
+    captcha_solver: CaptchaSolver | None = None,
+    on_captcha_auto=None,
 ) -> ScrapeResult:
     """
     Navigate to a TikTok slideshow/product URL and return a ScrapeResult.
+
+    When ``captcha_solver`` is supplied, a detected challenge is answered
+    automatically; if that fails, behaviour falls back to the manual wait.
     """
     logger.info("Navigating to: %s", url)
     product_id = ""
@@ -120,66 +448,57 @@ def scrape_images(
         logger.debug("Page loaded — title: %s", page.title())
         product_id = _extract_product_id(page.url)
 
-        # Shared predicate for both the initial detection and the resolution
-        # wait below, so a CAPTCHA is only reported when an actual challenge
-        # is visible on the page (TikTok ships a hidden captcha-widget
-        # container on ordinary pages, which used to trigger false alarms).
-        _captcha_visible_js = (
-            "() => {"
-            "  const t = document.title.toLowerCase();"
-            "  const u = location.href.toLowerCase();"
-            "  if (t.includes('security check') || t.includes('captcha')) return true;"
-            "  if (u.includes('verify.tiktok.com') || u.includes('captcha')) return true;"
-            "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
-            "  if (el) {"
-            "    const s = window.getComputedStyle(el);"
-            "    return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;"
-            "  }"
-            "  return false;"
-            "}"
-        )
-
         def _is_captcha_page() -> bool:
             try:
-                return bool(page.evaluate(_captcha_visible_js))
+                return bool(page.evaluate(_CAPTCHA_VISIBLE_JS))
             except Exception:
                 return False
 
         if _is_captcha_page():
             logger.warning("CAPTCHA detected on: %s", url)
-            if on_captcha:
-                on_captcha()
-            try:
-                page.wait_for_function(
-                    f"() => !({_captcha_visible_js})()",
-                    timeout=captcha_timeout_ms,
-                )
-                logger.info("CAPTCHA resolved for: %s", url)
-            except Exception:
+            auto_solved = False
+            if captcha_solver is not None and captcha_solver.configured:
                 try:
-                    diag = page.evaluate(
-                        "() => {"
-                        "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
-                        "  return {"
-                        "    title: document.title,"
-                        "    url: location.href,"
-                        "    elFound: !!el,"
-                        "    elVisible: el ? (window.getComputedStyle(el).display !== 'none'"
-                        "      && window.getComputedStyle(el).visibility !== 'hidden'"
-                        "      && el.offsetParent !== null) : null,"
-                        "  };"
-                        "}"
+                    auto_solved = _auto_solve_captcha(
+                        page, captcha_solver, on_solving=on_captcha_auto
                     )
-                    logger.error(
-                        "CAPTCHA timed out after %d ms for: %s — page state at timeout: %s",
-                        captcha_timeout_ms, url, diag,
+                except Exception:
+                    logger.exception("Auto CAPTCHA solving failed — falling back to manual")
+
+            if not auto_solved:
+                if on_captcha:
+                    on_captcha()
+                try:
+                    page.wait_for_function(
+                        f"() => !({_CAPTCHA_VISIBLE_JS})()",
+                        timeout=captcha_timeout_ms,
                     )
-                except Exception as diag_err:
-                    logger.error(
-                        "CAPTCHA timed out after %d ms for: %s (diagnostic read failed: %s)",
-                        captcha_timeout_ms, url, diag_err,
-                    )
-                return ScrapeResult([], "CAPTCHA not solved — timed out", product_id, "")
+                    logger.info("CAPTCHA resolved for: %s", url)
+                except Exception:
+                    try:
+                        diag = page.evaluate(
+                            "() => {"
+                            "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
+                            "  return {"
+                            "    title: document.title,"
+                            "    url: location.href,"
+                            "    elFound: !!el,"
+                            "    elVisible: el ? (window.getComputedStyle(el).display !== 'none'"
+                            "      && window.getComputedStyle(el).visibility !== 'hidden'"
+                            "      && el.offsetParent !== null) : null,"
+                            "  };"
+                            "}"
+                        )
+                        logger.error(
+                            "CAPTCHA timed out after %d ms for: %s — page state at timeout: %s",
+                            captcha_timeout_ms, url, diag,
+                        )
+                    except Exception as diag_err:
+                        logger.error(
+                            "CAPTCHA timed out after %d ms for: %s (diagnostic read failed: %s)",
+                            captcha_timeout_ms, url, diag_err,
+                        )
+                    return ScrapeResult([], "CAPTCHA not solved — timed out", product_id, "")
             if on_captcha_solved:
                 on_captcha_solved()
 

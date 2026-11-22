@@ -1,8 +1,9 @@
 from bs4 import BeautifulSoup
 
+import scraper.tiktok_scraper as tiktok_scraper
 from scraper.tiktok_scraper import (
-    _extract_product_id, _extract_product_title, _goto_with_retry, _short_error,
-    scrape_images, ScrapeResult,
+    _CAPTCHA_VISIBLE_JS, _extract_product_id, _extract_product_title,
+    _goto_with_retry, _short_error, scrape_images, ScrapeResult,
 )
 
 
@@ -132,3 +133,100 @@ def test_short_error_keeps_first_line_and_truncates():
     assert _short_error(RuntimeError("a" * 500 + "\nsecond")) .endswith("…")
     assert len(_short_error(RuntimeError("a" * 500))) == 140
     assert _short_error(RuntimeError("one\ntwo")) == "one"
+
+
+_PRODUCT_HTML = (
+    '<html><head><meta property="og:title" content="Test Product Title"></head>'
+    '<body><script id="__NEXT_DATA__">'
+    '{"props": {"pageProps": {"itemInfo": {"itemStruct": {"imagePost": {"images": '
+    '[{"imageURL": {"urlList": ["https://example.com/1.jpg"]}}]}}}}}}'
+    '</script></body></html>'
+)
+
+
+class _CaptchaPage(_FakePage):
+    """A product page that reports a visible CAPTCHA."""
+
+    def __init__(self):
+        super().__init__(_PRODUCT_HTML, "https://www.tiktok.com/view/product/1733446332351743967")
+
+    def evaluate(self, script, *args):
+        if script == _CAPTCHA_VISIBLE_JS:
+            return True
+        raise RuntimeError(f"unexpected evaluate call: {script[:40]}")
+
+    def wait_for_function(self, script, timeout=None):
+        return True
+
+
+class _ConfiguredSolver:
+    configured = True
+
+
+def test_scrape_images_auto_solves_captcha_without_manual_prompt(monkeypatch):
+    calls = []
+
+    def fake_auto_solve(page, solver, on_solving=None):
+        calls.append(("auto", solver))
+        return True
+
+    monkeypatch.setattr(tiktok_scraper, "_auto_solve_captcha", fake_auto_solve)
+    page = _CaptchaPage()
+    manual, solved = [], []
+
+    result = scrape_images(
+        "https://vt.tiktok.com/x",
+        page,
+        on_captcha=lambda: manual.append(True),
+        on_captcha_solved=lambda: solved.append(True),
+        captcha_solver=_ConfiguredSolver(),
+    )
+
+    assert result.images == ["https://example.com/1.jpg"]
+    assert manual == []
+    assert solved == [True]
+    assert calls and calls[0][1].configured
+
+
+def test_scrape_images_falls_back_to_manual_when_auto_solve_fails(monkeypatch):
+    monkeypatch.setattr(
+        tiktok_scraper,
+        "_auto_solve_captcha",
+        lambda page, solver, on_solving=None: False,
+    )
+    page = _CaptchaPage()
+    manual, solved = [], []
+
+    result = scrape_images(
+        "https://vt.tiktok.com/x",
+        page,
+        on_captcha=lambda: manual.append(True),
+        on_captcha_solved=lambda: solved.append(True),
+        captcha_solver=_ConfiguredSolver(),
+    )
+
+    assert result.images == ["https://example.com/1.jpg"]
+    assert manual == [True]
+    assert solved == [True]
+
+
+def test_scrape_images_skips_solver_when_not_configured(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("solver should not be used without an API key")
+
+    monkeypatch.setattr(tiktok_scraper, "_auto_solve_captcha", boom)
+    page = _CaptchaPage()
+    manual = []
+
+    class _UnconfiguredSolver:
+        configured = False
+
+    result = scrape_images(
+        "https://vt.tiktok.com/x",
+        page,
+        on_captcha=lambda: manual.append(True),
+        captcha_solver=_UnconfiguredSolver(),
+    )
+
+    assert result.images == ["https://example.com/1.jpg"]
+    assert manual == [True]

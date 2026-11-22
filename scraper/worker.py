@@ -11,6 +11,7 @@ from playwright.sync_api import sync_playwright
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QPixmap, QImage
 
+from scraper.captcha_solver import CaptchaSolver, DEFAULT_BASE_URL
 from scraper.tiktok_scraper import scrape_images, ScrapeResult
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,9 @@ _DEFAULT_CONFIG = {
     "max_delay": 2.0,
     "page_timeout": 30,
     "captcha_timeout_ms": 180_000,
+    "captcha_api_key": "",
+    "captcha_base_url": DEFAULT_BASE_URL,
+    "captcha_auto_solve": True,
 }
 
 
@@ -112,6 +116,17 @@ class CrawlWorker(QThread):
 
     def _run_inner(self, total: int):
         cfg = self._config
+
+        captcha_solver = None
+        if cfg.get("captcha_auto_solve") and cfg.get("captcha_api_key"):
+            captcha_solver = CaptchaSolver(
+                cfg["captcha_api_key"],
+                base_url=cfg.get("captcha_base_url") or DEFAULT_BASE_URL,
+            )
+            logger.info("Tự động giải CAPTCHA đã bật")
+        elif cfg.get("captcha_auto_solve"):
+            logger.info("Tự động giải CAPTCHA chưa bật — thiếu API key")
+
         with sync_playwright() as p:
             ctx = p.chromium.launch_persistent_context(
                 user_data_dir=str(_PROFILE_DIR),
@@ -142,6 +157,9 @@ class CrawlWorker(QThread):
                 def _on_captcha_solved():
                     self.status_update.emit(url, "Đã giải CAPTCHA, đang trích xuất…")
 
+                def _on_captcha_auto():
+                    self.status_update.emit(url, "Đang giải CAPTCHA tự động…")
+
                 try:
                     result = scrape_images(
                         url, page,
@@ -149,6 +167,8 @@ class CrawlWorker(QThread):
                         on_captcha_solved=_on_captcha_solved,
                         captcha_timeout_ms=cfg["captcha_timeout_ms"],
                         page_timeout_ms=cfg["page_timeout"] * 1000,
+                        captcha_solver=captcha_solver,
+                        on_captcha_auto=_on_captcha_auto,
                     )
                 except Exception as e:
                     logger.error("Scrape error for %s: %s", url, e, exc_info=True)
