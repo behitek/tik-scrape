@@ -149,10 +149,25 @@ def test_drag_distance_scales_natural_pixels_when_proportion_missing():
     assert distance == pytest.approx(362 * 340 / 552)
 
 
+def test_drag_distance_subtracts_piece_start_offset():
+    state = _puzzle_state()
+    state["pieceRect"] = {"x": 500, "y": 276, "w": 68, "h": 68}
+    solution = SolveResult({"proportion": 0.5})
+    # 0.5 * 340 = 170 px target, minus the 30 px the piece already covers.
+    assert _drag_distance(state, solution) == pytest.approx(140)
+
+
 def test_drag_distance_maps_rotate_angle_to_slider_travel():
     solution = SolveResult({"angle": 90})
     distance = _drag_distance(_puzzle_state(), solution)
     assert distance == pytest.approx((340 - 44) * 0.25)
+
+
+def test_drag_distance_rotate_handles_whole_bar_as_thumb():
+    state = _puzzle_state()
+    state["thumbRect"] = {"x": 470, "y": 492, "w": 340, "h": 44}
+    solution = SolveResult({"angle": 90})
+    assert _drag_distance(state, solution) == pytest.approx((340 - 44) * 0.25)
 
 
 def test_drag_distance_returns_none_for_unknown_solution():

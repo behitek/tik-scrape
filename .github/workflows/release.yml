@@ -51,13 +51,22 @@ jobs:
             dist/TikTokImageScraper-v*-Setup-win64.exe
             dist/TikTokImageScraper-v*-win64.zip
 
-      - name: Create GitHub release
+      - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" `
-            (Get-ChildItem dist\TikTokImageScraper-v*-Setup-win64.exe, dist\TikTokImageScraper-v*-win64.zip).FullName `
-            --title "TikTok Image Scraper ${{ github.ref_name }}" `
-            --generate-notes
+          $assets = (Get-ChildItem dist\TikTokImageScraper-v*-Setup-win64.exe, dist\TikTokImageScraper-v*-win64.zip).FullName
+          gh release view "${{ github.ref_name }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # The release already exists (e.g. a fixed build for the same
+            # version) — replace its assets.
+            gh release upload "${{ github.ref_name }}" $assets --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            gh release create "${{ github.ref_name }}" $assets `
+              --title "TikTok Image Scraper ${{ github.ref_name }}" `
+              --generate-notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

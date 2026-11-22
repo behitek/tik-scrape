@@ -3,6 +3,7 @@ import json
 import logging
 import random
 import re
+import time
 from dataclasses import dataclass
 
 import requests
@@ -30,10 +31,14 @@ _CAPTCHA_VISIBLE_JS = (
     "  const u = location.href.toLowerCase();"
     "  if (t.includes('security check') || t.includes('captcha')) return true;"
     "  if (u.includes('verify.tiktok.com') || u.includes('captcha')) return true;"
-    "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
-    "  if (el) {"
-    "    const s = window.getComputedStyle(el);"
-    "    return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;"
+    "  const sels = ['#captcha-verify-image', '.captcha_verify_container'];"
+    "  for (const sel of sels) {"
+    "    for (const el of document.querySelectorAll(sel)) {"
+    "      const s = window.getComputedStyle(el);"
+    "      if (s.display === 'none' || s.visibility === 'hidden') continue;"
+    "      const r = el.getBoundingClientRect();"
+    "      if (r.width > 0 && r.height > 0) return true;"
+    "    }"
     "  }"
     "  return false;"
     "}"
@@ -45,7 +50,9 @@ _CAPTCHA_STATE_JS = """() => {
   const isVisible = (el) => {
     if (!el) return false;
     const s = window.getComputedStyle(el);
-    return s.display !== 'none' && s.visibility !== 'hidden' && el.offsetParent !== null;
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
   };
   const rect = (el) => {
     const r = el.getBoundingClientRect();
@@ -55,25 +62,31 @@ _CAPTCHA_STATE_JS = """() => {
   if (!isVisible(container)) return null;
 
   const text = (container.innerText || '').toLowerCase();
-  const pieceEl = container.querySelector('.captcha_verify_img_slide');
+  const pieceEl = container.querySelector('.captcha_verify_img_slide, [class*="img_slide"]');
   let subtype = null;
   if (isVisible(pieceEl)) subtype = 'puzzle';
+  else if (text.includes('puzzle') || text.includes('piece') || text.includes('mảnh ghép')) subtype = 'puzzle';
   else if (text.includes('rotate') || text.includes('xoay')) subtype = 'rotate';
   else if (text.includes('3d')) subtype = '3d';
   else if (text.includes('two') || text.includes('objects') || text.includes('vật thể')) subtype = 'two_objects';
 
-  let imageEl = document.querySelector('#captcha-verify-image');
-  if (!imageEl) {
-    imageEl = container.querySelector('.captcha_verify_img--wrapper img, img');
-  }
+  let imageEl = container.querySelector('#captcha-verify-image')
+    || container.querySelector('.captcha_verify_img--wrapper img, .captcha_verify_img--wrapper canvas, canvas, img');
   let imageSrc = null;
   if (imageEl) {
     if (imageEl.tagName === 'CANVAS') imageSrc = imageEl.toDataURL('image/png');
     else imageSrc = imageEl.currentSrc || imageEl.src || null;
   }
+  if (!imageSrc) {
+    const bgHolder = container.querySelector('[style*="background-image"], [class*="captcha_verify_img"]');
+    if (bgHolder) {
+      const m = (window.getComputedStyle(bgHolder).backgroundImage || '').match(/url\\(["']?(.*?)["']?\\)/);
+      if (m) imageSrc = m[1];
+    }
+  }
   const pieceSrc = pieceEl ? (pieceEl.currentSrc || pieceEl.src || null) : null;
 
-  const thumbEl = container.querySelector('.secsdk-captcha-drag-icon')
+  const thumbEl = container.querySelector('.secsdk-captcha-drag-icon, [class*="drag-icon"]')
     || container.querySelector('.captcha_verify_slide--button')
     || container.querySelector('.captcha_verify_slide--slidebar');
   const sliderEl = container.querySelector('.captcha_verify_slide--slidebar')
@@ -85,6 +98,7 @@ _CAPTCHA_STATE_JS = """() => {
     imageSrc: imageSrc,
     pieceSrc: pieceSrc,
     imageRect: imageEl ? rect(imageEl) : null,
+    pieceRect: pieceEl ? rect(pieceEl) : null,
     natural: imageEl ? {w: imageEl.naturalWidth || 0, h: imageEl.naturalHeight || 0} : null,
     thumbRect: thumbEl ? rect(thumbEl) : null,
     sliderRect: sliderEl ? rect(sliderEl) : null,
@@ -197,7 +211,23 @@ def _read_captcha_state(page) -> dict | None:
         return None
 
 
-def _wait_for_captcha_assets(page, state: dict | None, timeout_ms: int = 5_000) -> dict | None:
+def _wait_for_captcha_state(page, timeout_ms: int = 5_000) -> dict | None:
+    """Wait briefly for the widget DOM to appear after a challenge signalled."""
+    state = _read_captcha_state(page)
+    waited = 0
+    while state is None and waited < timeout_ms:
+        try:
+            if not page.evaluate(_CAPTCHA_VISIBLE_JS):
+                return None
+        except Exception:
+            return None
+        page.wait_for_timeout(300)
+        waited += 300
+        state = _read_captcha_state(page)
+    return state
+
+
+def _wait_for_captcha_assets(page, state: dict | None, timeout_ms: int = 8_000) -> dict | None:
     """Wait until the challenge image (and puzzle piece) have a src.
 
     The widget container can become visible a moment before its images load;
@@ -263,21 +293,34 @@ def _drag_distance(state: dict, solution) -> float | None:
     # travel (TikTok's rotate slider sweeps 360° end to end).
     if solution.angle is not None and solution.x is None:
         thumb = state.get("thumbRect") or {}
-        track = max(1.0, float(slider.get("w") or 0) - float(thumb.get("w") or 0))
+        slider_w = float(slider.get("w") or 0)
+        thumb_w = float(thumb.get("w") or 0)
+        if slider_w and abs(thumb_w - slider_w) < 2:
+            # fallback element is the whole bar; knob size ≈ bar height
+            thumb_w = float(thumb.get("h") or slider.get("h") or 44)
+        track = max(1.0, slider_w - thumb_w)
         return track * (solution.angle % 360.0) / 360.0
 
     image_rect = state.get("imageRect") or {}
     display_w = float(image_rect.get("w") or 0)
 
+    # The returned position is an absolute x within the image, but the piece
+    # may not start at the image's left edge. Only the difference has to be
+    # covered by the slider drag.
+    piece_offset = 0.0
+    piece_rect = state.get("pieceRect") or {}
+    if display_w and piece_rect.get("w"):
+        piece_offset = float(piece_rect.get("x", 0)) - float(image_rect.get("x", 0))
+
     # `proportion` is the target position relative to the image width and is
     # already independent of the image's natural resolution.
     if solution.proportion is not None and display_w:
-        return solution.proportion * display_w
+        return solution.proportion * display_w - piece_offset
 
     if solution.x is not None:
         natural_w = float((state.get("natural") or {}).get("w") or 0)
         if display_w and natural_w:
-            return solution.x * display_w / natural_w
+            return solution.x * display_w / natural_w - piece_offset
         return solution.x
 
     return None
@@ -313,13 +356,38 @@ def _apply_captcha_solution(page, state: dict, solution) -> bool:
         )
         return False
 
-    thumb = state.get("thumbRect") or state.get("sliderRect")
+    slider = state.get("sliderRect") or {}
+    thumb = state.get("thumbRect") or slider
     if not thumb:
         logger.warning("CAPTCHA slider not found — cannot apply solution")
         return False
 
-    start_x = thumb["x"] + thumb["w"] / 2
-    start_y = thumb["y"] + thumb["h"] / 2
+    # If only the whole slider bar was found, the knob can only be at its
+    # left end (where it starts); dragging from the bar's centre would grab
+    # nothing and the challenge would never move.
+    fallback_knob = bool(slider) and abs(
+        float(thumb.get("w") or 0) - float(slider.get("w") or 0)
+    ) < 2
+    if fallback_knob:
+        knob_w = min(float(slider.get("h") or 44), float(thumb.get("w") or 44))
+        start_x = float(slider["x"]) + knob_w / 2
+        start_y = float(slider["y"]) + float(slider.get("h") or 44) / 2
+        logger.info("CAPTCHA knob element not found — dragging from the bar's left end")
+    else:
+        knob_w = float(thumb.get("w") or 0)
+        start_x = thumb["x"] + thumb["w"] / 2
+        start_y = thumb["y"] + thumb["h"] / 2
+
+    max_travel = float(slider.get("w") or 0) - knob_w
+    if max_travel > 0:
+        if distance > max_travel + 2:
+            logger.warning(
+                "Required drag %.1f px exceeds slider travel %.1f px — cannot apply",
+                distance, max_travel,
+            )
+            return False
+        distance = min(distance, max_travel)
+
     logger.info(
         "Applying CAPTCHA solution %s — dragging %.1f px from (%.1f, %.1f)",
         solution.raw, distance, start_x, start_y,
@@ -359,13 +427,21 @@ def _auto_solve_captcha(
     for attempt in range(1, max_attempts + 1):
         state = _read_captcha_state(page)
         if state is None:
-            # The widget container may be missing while the page is still a
-            # security-check interstitial — only report success if the whole
-            # CAPTCHA predicate is gone.
+            # The challenge may have just been signalled while its widget is
+            # still rendering; give it a moment before deciding.
+            state = _wait_for_captcha_state(page)
+        if state is None:
             try:
-                return not bool(page.evaluate(_CAPTCHA_VISIBLE_JS))
+                visible = bool(page.evaluate(_CAPTCHA_VISIBLE_JS))
             except Exception:
                 return True
+            if visible:
+                logger.warning(
+                    "CAPTCHA is visible but no usable challenge widget was found "
+                    "— falling back to manual"
+                )
+                return False
+            return True
 
         # These need object selection/clicks that this client cannot drive
         # yet — don't spend solver credits on them.
@@ -454,8 +530,19 @@ def scrape_images(
             except Exception:
                 return False
 
-        if _is_captcha_page():
+        def _handle_captcha() -> ScrapeResult | None:
+            """Auto-solve or wait for a challenge; error result on timeout."""
+            if not _is_captcha_page():
+                return None
+
             logger.warning("CAPTCHA detected on: %s", url)
+            if _read_captcha_state(page) is None:
+                logger.warning(
+                    "CAPTCHA is visible but its widget is not ready/recognized yet "
+                    "(title=%r, url=%r)",
+                    page.title(), page.url,
+                )
+
             auto_solved = False
             if captcha_solver is not None and captcha_solver.configured:
                 try:
@@ -478,15 +565,16 @@ def scrape_images(
                     try:
                         diag = page.evaluate(
                             "() => {"
-                            "  const el = document.querySelector('#captcha-verify-image, .captcha_verify_container, [id*=\"captcha\"]');"
-                            "  return {"
-                            "    title: document.title,"
-                            "    url: location.href,"
-                            "    elFound: !!el,"
-                            "    elVisible: el ? (window.getComputedStyle(el).display !== 'none'"
-                            "      && window.getComputedStyle(el).visibility !== 'hidden'"
-                            "      && el.offsetParent !== null) : null,"
-                            "  };"
+                            "  const out = [];"
+                            "  for (const sel of ['#captcha-verify-image', '.captcha_verify_container', '[id*=\"captcha\"]']) {"
+                            "    for (const el of document.querySelectorAll(sel)) {"
+                            "      const s = window.getComputedStyle(el), r = el.getBoundingClientRect();"
+                            "      out.push({id: el.id, cls: (el.className || '').toString().slice(0, 60),"
+                            "        display: s.display, visibility: s.visibility,"
+                            "        w: Math.round(r.width), h: Math.round(r.height)});"
+                            "    }"
+                            "  }"
+                            "  return {title: document.title, url: location.href, elements: out.slice(0, 10)};"
                             "}"
                         )
                         logger.error(
@@ -499,14 +587,42 @@ def scrape_images(
                             captcha_timeout_ms, url, diag_err,
                         )
                     return ScrapeResult([], "CAPTCHA not solved — timed out", product_id, "")
+
             if on_captcha_solved:
                 on_captcha_solved()
+            return None
 
-        try:
-            page.wait_for_selector("div.slick-slide", timeout=12000)
-            logger.debug("Slick slider found")
-        except Exception:
-            logger.debug("No slick slider — continuing with content parse")
+        # TikTok usually injects the challenge several seconds after
+        # domcontentloaded, so keep watching for it while waiting for content.
+        content_deadline = time.monotonic() + min(page_timeout_ms / 1000, 15.0)
+        while True:
+            captcha_error = _handle_captcha()
+            if captcha_error is not None:
+                return captcha_error
+
+            try:
+                has_content = bool(page.evaluate(
+                    "() => {"
+                    "  const d = document.querySelector('#__NEXT_DATA__');"
+                    "  if (d && d.textContent && d.textContent.includes('imagePost')) return true;"
+                    "  return !!document.querySelector('div.slick-slide');"
+                    "}"
+                ))
+            except Exception:
+                has_content = False
+
+            if has_content:
+                logger.debug("Page content ready")
+                break
+            if time.monotonic() >= content_deadline:
+                logger.debug("Content wait timed out — continuing with content parse")
+                break
+            page.wait_for_timeout(350)
+
+        # A challenge can also arrive just after the content renders.
+        captcha_error = _handle_captcha()
+        if captcha_error is not None:
+            return captcha_error
 
         content = page.content()
     except WafRedirectError as e:

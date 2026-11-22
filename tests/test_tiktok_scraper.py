@@ -62,6 +62,12 @@ class _FakePage:
     def locator(self, selector):
         return _FakeLocator()
 
+    def evaluate(self, script, *args):
+        return "__NEXT_DATA__" in script
+
+    def wait_for_timeout(self, ms):
+        pass
+
 
 def test_scrape_images_returns_scrape_result_with_product_metadata():
     html = (
@@ -149,13 +155,17 @@ class _CaptchaPage(_FakePage):
 
     def __init__(self):
         super().__init__(_PRODUCT_HTML, "https://www.tiktok.com/view/product/1733446332351743967")
+        self.captcha_visible = True
 
     def evaluate(self, script, *args):
         if script == _CAPTCHA_VISIBLE_JS:
-            return True
-        raise RuntimeError(f"unexpected evaluate call: {script[:40]}")
+            return self.captcha_visible
+        if "__NEXT_DATA__" in script:
+            return True  # content is ready
+        return None
 
     def wait_for_function(self, script, timeout=None):
+        self.captcha_visible = False  # manual resolution
         return True
 
 
@@ -168,6 +178,7 @@ def test_scrape_images_auto_solves_captcha_without_manual_prompt(monkeypatch):
 
     def fake_auto_solve(page, solver, on_solving=None):
         calls.append(("auto", solver))
+        page.captcha_visible = False
         return True
 
     monkeypatch.setattr(tiktok_scraper, "_auto_solve_captcha", fake_auto_solve)

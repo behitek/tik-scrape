@@ -41,7 +41,7 @@ ui/
 3. Regex extraction from all script tags
 4. DOM fallback: Slick slider `<div>` elements
 
-**CAPTCHA handling:** detection checks the page title/URL and whether a captcha container is actually visible. If an API key is configured, `scraper/tiktok_scraper.py::_auto_solve_captcha` captures the challenge image (and puzzle piece), sends it to the CaptchaSolve API, then performs a human-like slider drag using the returned position. If solving fails or no key is set, the worker signals the UI and waits up to 3 minutes for manual resolution.
+**CAPTCHA handling:** detection checks the page title/URL and whether a real challenge element (`#captcha-verify-image` / `.captcha_verify_container`) is visible with non-zero size — never a single `querySelector`, because TikTok ships hidden `[id*="captcha"]` nodes (e.g. `lucifer-captcha-loader-js`) earlier in the DOM. TikTok can inject the widget several seconds after `domcontentloaded`, so `scrape_images` polls for a challenge while waiting for page content instead of checking once. If an API key is configured, `scraper/tiktok_scraper.py::_auto_solve_captcha` captures the challenge image (and puzzle piece), sends it to the CaptchaSolve API, then performs a human-like slider drag using the returned position. If solving fails or no key is set, the worker signals the UI and waits up to 3 minutes for manual resolution.
 
 **CaptchaSolve API** (`scraper/captcha_solver.py`, base `https://api.kimidev.net`):
 - `POST /api/solve/createTask` with `{"clientKey", "task": {"type": "TikTokCaptchaTask", "image": <base64>, "piece": <base64, puzzle only>, "subtype": "puzzle"|"rotate"|"3d"|"two_objects"}}`
